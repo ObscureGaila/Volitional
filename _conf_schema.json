@@ -3,6 +3,6 @@
         "description": "辅助模型",
         "type": "string",
         "hint": "选择一个用于辅助判断的大模型",
-        "_special": "provider"
+        "_special": "select_provider"
     }
 }
