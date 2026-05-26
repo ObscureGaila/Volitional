@@ -1,9 +1,8 @@
 {
     "aux_provider": {
         "description": "辅助模型",
-        "type": "object",
+        "type": "string",
         "hint": "选择一个用于辅助判断的大模型",
-        "items": {},
         "_special": "provider"
     }
 }

@@ -23,7 +23,7 @@ class PluginVolitional(Star):
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
 
-class JudgmentHelper(Star):
+class JudgmentHelper:
     """该类用于调用一个小模型，判断多个对话与主AI的联系，并给出一部分判断评分"""
     _instance = None
 
@@ -34,7 +34,7 @@ class JudgmentHelper(Star):
 
     def __init__(self, context: Context):
         if not hasattr(self, '_initialized'):
-            super().__init__(context)
+            self.context = context
             self._initialized = True
 
     async def initialize(self):
@@ -42,6 +42,6 @@ class JudgmentHelper(Star):
 
     async def terminate(self):
         """销毁方法，重置单例状态"""
-        self._instance = None
+        JudgmentHelper._instance = None
         self._initialized = False
 
