@@ -1,3 +1,5 @@
+import asyncio
+import json
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,22 +12,40 @@ class PluginVolitional(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
+        self._task = None  # 后台周期任务句柄
 
     async def initialize(self):
+        """异步初始化方法，首次创建实例后自动调用"""
         JudgmentHelper(self.context, self.config)
+        self._task = asyncio.create_task(self._periodic_loop())  # 启动后台周期轮询
+
+    async def _periodic_loop(self):
+        """从配置读取 poll_interval（默认 300 秒），周期调用 _poll()"""
+        interval = int(self.config.get("poll_interval", 300))
+        while True:
+            try:
+                await self._poll()
+            except Exception as e:
+                logger.error(f"周期任务异常: {e}")
+            await asyncio.sleep(interval)
+
+    async def _poll(self):
+        """周期执行的检查逻辑，子类或后续可在此扩展"""
+        pass
 
     # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
+    # @filter.command("helloworld")
+    # async def helloworld(self, event: AstrMessageEvent):
+    #     """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
+    #     user_name = event.get_sender_name()
+    #     message_str = event.message_str # 用户发的纯文本消息字符串
+    #     message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
+    #     logger.info(message_chain)
+    #     yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
 
     async def terminate(self):
-        """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+        if self._task:
+            self._task.cancel()  # 取消后台周期任务
 
 @dataclass
 class JudgmentScore:
@@ -92,6 +112,55 @@ class JudgmentHelper:
             self.context = context
             self.config = config
             self._initialized = True
+
+    async def judge(self, conversation_text: str) -> JudgmentScore:
+        """使用配置的辅助模型对对话进行评分，返回判断结果
+
+        Args:
+            conversation_text: 需要判断的对话文本
+
+        Returns:
+            JudgmentScore: 包含各指标评分及是否建议回复的判定
+        """
+        provider_id = self.config.get("aux_provider", "") if self.config else ""
+        if not provider_id:
+            logger.warning("未配置辅助模型(aux_provider)，无法执行判断")
+            return JudgmentScore(reason="未配置辅助模型")
+
+        prompt = self._build_judge_prompt(conversation_text)
+        try:
+            llm_resp = await self.context.llm_generate(
+                chat_provider_id=provider_id,
+                prompt=prompt,
+            )
+        except Exception as e:
+            logger.error(f"调用辅助模型失败: {e}")
+            return JudgmentScore(reason=f"模型调用失败: {e}")
+
+        metrics = self._parse_llm_response(llm_resp.completion_text)
+        return self.compute_score(metrics)
+
+    def _build_judge_prompt(self, conversation_text: str) -> str:
+        """构建发送给辅助模型的评分 prompt"""
+        return (
+            "你是一个对话分析助手。请根据以下对话内容，判断机器人是否适合回复。\n\n"
+            + self.describe_metrics()
+            + f"\n\n对话内容：\n{conversation_text}"
+        )
+
+    @staticmethod
+    def _parse_llm_response(text: str) -> dict:
+        """从 LLM 返回文本中解析出 JSON 指标字典"""
+        try:
+            text = text.strip()
+            brace_start = text.find("{")
+            brace_end = text.rfind("}") + 1
+            if brace_start != -1 and brace_end > brace_start:
+                text = text[brace_start:brace_end]
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            logger.error(f"解析辅助模型返回的JSON失败: {e}，原始文本: {text[:200]}")
+            return {}
 
     @property
     def weights(self) -> dict:

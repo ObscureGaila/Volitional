@@ -5,6 +5,13 @@
         "hint": "选择一个用于辅助判断的大模型",
         "_special": "select_provider"
     },
+    "poll_interval": {
+        "description": "主动获取最新消息间隔",
+        "type": "int",
+        "hint": "主动获取最新消息的间隔，单位：秒。设置为0时表示实时检查，将消耗大量token。",
+        "default": 300,
+        "slider": {"min": 0, "max": 86400, "step": 5}
+    },
     "reply_threshold": {
         "description": "回复阈值",
         "type": "float",
