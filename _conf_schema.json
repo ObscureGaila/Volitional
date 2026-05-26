@@ -4,5 +4,68 @@
         "type": "string",
         "hint": "选择一个用于辅助判断的大模型",
         "_special": "select_provider"
+    },
+    "reply_threshold": {
+        "description": "回复阈值",
+        "type": "float",
+        "hint": "综合得分需 >= 此值才建议回复",
+        "default": 0.55,
+        "slider": {"min": 0, "max": 1, "step": 0.05}
+    },
+    "weights": {
+        "description": "指标权重（总和应为 1.0）",
+        "type": "object",
+        "hint": "调整各指标对综合得分的贡献比例",
+        "items": {
+            "relevance": {
+                "description": "关联度权重",
+                "type": "float",
+                "hint": "消息与机器人/话题的关联程度",
+                "default": 0.25,
+                "slider": {"min": 0, "max": 1, "step": 0.05}
+            },
+            "replyability": {
+                "description": "可回复性权重",
+                "type": "float",
+                "hint": "消息中是否存在可被明确回应的问题或陈述",
+                "default": 0.25,
+                "slider": {"min": 0, "max": 1, "step": 0.05}
+            },
+            "context_completeness": {
+                "description": "语境完整度权重",
+                "type": "float",
+                "hint": "上下文是否足够支撑有意义的回复",
+                "default": 0.15,
+                "slider": {"min": 0, "max": 1, "step": 0.05}
+            },
+            "emotional_suitability": {
+                "description": "情感适合度权重",
+                "type": "float",
+                "hint": "情绪氛围是否适合介入",
+                "default": 0.10,
+                "slider": {"min": 0, "max": 1, "step": 0.05}
+            },
+            "timeliness": {
+                "description": "时效性权重",
+                "type": "float",
+                "hint": "消息是否足够新、需要即时回应",
+                "default": 0.10,
+                "slider": {"min": 0, "max": 1, "step": 0.05}
+            },
+            "information_density": {
+                "description": "信息密度权重",
+                "type": "float",
+                "hint": "实质性内容占比，纯表情/语气词为低",
+                "default": 0.10,
+                "slider": {"min": 0, "max": 1, "step": 0.05}
+            },
+            "intervention_naturalness": {
+                "description": "介入自然度权重",
+                "type": "float",
+                "hint": "此时介入是否自然不突兀",
+                "default": 0.05,
+                "slider": {"min": 0, "max": 1, "step": 0.05}
+            }
+        }
     }
 }
