@@ -12,11 +12,13 @@ from .models import JudgmentScore
 class ChatHandler:
     """全权接管聊天信息：拦截消息 → 判断是否回复 → 注入上下文 → 修改输出。
 
-    通过 AstrBot 生命周期的 4 个钩子实现对消息的全流程控制：
-    1. 拦截所有消息，调用辅助模型判断是否适合回复
-    2. LLM 请求前注入判断上下文到 system_prompt
-    3. LLM 响应后记录日志和对话历史
-    4. 发送消息前的最终修饰
+    通过 AstrBot 生命周期的钩子实现对消息的全流程控制：
+    - event_message_type(ALL): 仅记录消息到缓冲区（不做判断，避免影响事件分发）
+    - on_llm_request: 在此阶段运行判断，决定是否回复，同时注入上下文
+    - on_llm_response: 记录日志和对话历史
+    - on_decorating_result: 发送前的最终修饰
+
+    注意：非 @/唤醒词消息需要 AstrBot 配置为"始终唤醒"才能到达 LLM 阶段并被判断。
     """
 
     def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig):
@@ -94,7 +96,7 @@ class ChatHandler:
         ]
 
         if recent:
-            lines.append("\n最近 {0} 条消息:".format(len(recent)))
+            lines.append(f"\n最近 {len(recent)} 条消息:")
             for ts, label in recent:
                 time_str = ts.strftime("%H:%M:%S")
                 lines.append(f"[{time_str}] {label}")
@@ -113,24 +115,38 @@ class ChatHandler:
         """
         return event.is_at_or_wake_command
 
+    # ① 仅记录消息，不做判断，不阻断事件分发
     async def on_all_message(self, event: AstrMessageEvent):
-        """拦截所有消息，调用辅助模型判断是否适合回复。
+        """记录所有到达 HandlerStage 的消息到历史缓冲区。
 
-        如果用户明确 @或唤醒了机器人，跳过判断直接回复。
-        否则将对话上下文发给辅助模型评分，得分不达标则禁用 LLM 调用并清空结果。
+        此阶段不运行判断（判断在 on_llm_request 中），
+        仅记录消息以确保缓冲区及时更新。
 
         Args:
             event: 消息事件。
         """
-        is_targeted = self._is_targeted(event)
-
         outline = event.get_message_outline()
         sender_name = event.get_sender_name() or "未知用户"
         umo = self._get_umo(event)
 
+        is_targeted = self._is_targeted(event)
         extra_marker = " [@机器人/唤醒]" if is_targeted else ""
         labeled = f"[{sender_name}]{extra_marker}: {outline}"
         self._get_buffer(umo).append((datetime.now(), labeled))
+
+    # ② LLM 请求前：运行判断 + 注入上下文
+    async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
+        """LLM 请求前运行辅助模型判断，决定是否回复。
+
+        如果用户明确 @或唤醒了机器人，跳过判断直接允许回复。
+        否则将对话上下文发给辅助模型评分，得分不达标则阻断 LLM 调用。
+
+        Args:
+            event: 消息事件。
+            req: LLM 请求对象。
+        """
+        is_targeted = self._is_targeted(event)
+        umo = self._get_umo(event)
 
         if is_targeted:
             logger.info("[Volitional] 明确@唤醒，跳过判断，直接回复")
@@ -161,20 +177,7 @@ class ChatHandler:
                 f"[Volitional] score={score.overall:.3f} < threshold={score.reply_threshold}, "
                 f"skip reply | reason: {score.reason}"
             )
-            event.should_call_llm(False)
-            event.clear_result()
-
-    async def inject_judgment(self, event: AstrMessageEvent, req: ProviderRequest):
-        """LLM 请求前，将判断上下文注入 system_prompt。
-
-        仅当 should_reply 为 True 时生效，向 LLM 提供各维度评分和回复建议。
-
-        Args:
-            event: 消息事件。
-            req: 即将发送给 LLM 的请求对象，可直接修改其字段。
-        """
-        score: JudgmentScore | None = event.get_extra("judgment_score")
-        if not score or not score.should_reply:
+            event.stop_event()
             return
 
         parts = [
@@ -190,6 +193,7 @@ class ChatHandler:
         ]
         req.system_prompt += "\n".join(parts)
 
+    # ③ LLM 响应后：记录日志和对话历史
     async def log_response(self, event: AstrMessageEvent, response: LLMResponse):
         """LLM 响应后，记录日志并追加 Bot 回复到历史缓冲区。
 
@@ -209,6 +213,7 @@ class ChatHandler:
             preview = response.completion_text[:200]
             self._get_buffer(umo).append((datetime.now(), f"[Bot]: {preview}"))
 
+    # ④ 发送消息前：可选的输出端修饰
     async def final_decorate(self, event: AstrMessageEvent):
         """发送消息前对最终输出进行修饰。
 

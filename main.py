@@ -15,6 +15,8 @@ class PluginVolitional(Star):
 
     全流程接管 4 个钩子，委托 ChatHandler 处理实际逻辑。
     同时启动后台周期轮询，用于未来扩展主动探测功能。
+
+    注意：非 @/唤醒词消息需要 AstrBot 配置为"始终唤醒"才能被判断。
     """
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -39,7 +41,7 @@ class PluginVolitional(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_all_message(self, event: AstrMessageEvent):
-        """拦截所有消息事件。
+        """记录所有消息到历史缓冲区。
 
         Args:
             event: 消息事件。
@@ -47,14 +49,14 @@ class PluginVolitional(Star):
         await self._chat_handler.on_all_message(event)
 
     @filter.on_llm_request()
-    async def inject_judgment(self, event: AstrMessageEvent, req: ProviderRequest):
-        """LLM 请求前注入判断上下文。
+    async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
+        """LLM 请求前运行判断 + 注入上下文。
 
         Args:
             event: 消息事件。
             req: LLM 请求对象。
         """
-        await self._chat_handler.inject_judgment(event, req)
+        await self._chat_handler.on_llm_request(event, req)
 
     @filter.on_llm_response()
     async def log_response(self, event: AstrMessageEvent, response: LLMResponse):
