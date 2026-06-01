@@ -125,6 +125,9 @@ class ChatHandler:
         Args:
             event: 消息事件。
         """
+        if event.get_self_id() == event.get_sender_id():
+            return
+
         outline = event.get_message_outline()
         sender_name = event.get_sender_name() or "未知用户"
         umo = self._get_umo(event)
@@ -139,6 +142,8 @@ class ChatHandler:
             f"is_wake={event.is_wake_up()} | is_targeted={is_targeted} | "
             f"msg={outline[:60]}"
         )
+
+        event.should_call_llm(True)
 
     # ② LLM 请求前：运行判断 + 注入上下文
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
@@ -189,6 +194,7 @@ class ChatHandler:
                 )
             except Exception as e:
                 logger.error(f"Judgment failed: {e}")
+                event.stop_event()
                 return
 
         event.set_extra("judgment_score", score)

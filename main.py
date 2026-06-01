@@ -29,12 +29,13 @@ class PluginVolitional(Star):
         super().__init__(context)
         self.config = config
         self._task = None
+        self._helper: JudgmentHelper | None = None
         self._chat_handler: ChatHandler | None = None
 
     async def initialize(self):
         """插件激活时调用，初始化 JudgmentHelper、ChatHandler 和后台轮询任务。"""
-        helper = JudgmentHelper(self.context, self.config)
-        self._chat_handler = ChatHandler(helper, self.config)
+        self._helper = JudgmentHelper(self.context, self.config)
+        self._chat_handler = ChatHandler(self._helper, self.config)
         self._task = asyncio.create_task(self._periodic_loop())
 
     # ------ 全流程接管：4 个钩子，由 ChatHandler 处理实际逻辑 ------ #
@@ -93,6 +94,8 @@ class PluginVolitional(Star):
         """单次轮询逻辑，预留扩展。"""
 
     async def terminate(self):
-        """插件禁用或重载时调用，取消后台轮询任务。"""
+        """插件禁用或重载时调用，取消后台轮询任务并重置单例。"""
         if self._task:
             self._task.cancel()
+        if self._helper:
+            await self._helper.terminate()
