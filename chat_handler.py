@@ -1,8 +1,9 @@
 from collections import deque
+from datetime import datetime
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest, LLMResponse
-from astrbot.api import logger
+from astrbot.api import logger, AstrBotConfig
 
 from .judgment_helper import JudgmentHelper
 from .models import JudgmentScore
@@ -18,15 +19,17 @@ class ChatHandler:
     4. 发送消息前的最终修饰
     """
 
-    def __init__(self, judgment_helper: JudgmentHelper):
+    def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig):
         """初始化聊天处理器。
 
         Args:
             judgment_helper: JudgmentHelper 单例，用于调用辅助模型进行回复判断。
+            config: 插件配置对象。
         """
         self.judgment_helper = judgment_helper
-        self._conversation_buffers: dict[str, deque[str]] = {}
-        self._max_buffer_size = 20
+        self._config = config
+        self._conversation_buffers: dict[str, deque[tuple[datetime, str]]] = {}
+        self._max_buffer_size = 50
 
     def _get_umo(self, event: AstrMessageEvent) -> str:
         """从事件中提取统一会话标识。
@@ -39,32 +42,64 @@ class ChatHandler:
         """
         return event.unified_msg_origin
 
-    def _get_buffer(self, umo: str) -> deque[str]:
+    def _get_buffer(self, umo: str) -> deque[tuple[datetime, str]]:
         """获取指定会话的历史消息缓冲区。
 
         Args:
             umo: 统一会话标识。
 
         Returns:
-            deque[str]: 该会话的定长消息缓冲区，最大容量为 _max_buffer_size。
+            deque: 该会话的定长消息缓冲区，元素为 (时间, 消息标签) 元组。
         """
         if umo not in self._conversation_buffers:
             self._conversation_buffers[umo] = deque(maxlen=self._max_buffer_size)
         return self._conversation_buffers[umo]
 
-    def _build_conversation_text(self, umo: str) -> str:
+    def _resolve_bot_name(self, event: AstrMessageEvent) -> str:
+        """获取机器人在当前聊天中的名字。
+
+        优先读取配置中的 bot_name，否则使用机器人 ID。
+
+        Args:
+            event: 消息事件。
+
+        Returns:
+            str: 机器人名字。
+        """
+        configured = self._config.get("bot_name", "")
+        if configured:
+            return configured
+        return f"Bot_{event.get_self_id()}"
+
+    def _build_conversation_text(self, umo: str, bot_name: str) -> str:
         """构建发送给辅助模型的对话文本。
 
-        取指定会话缓冲区的最近 10 条消息，用换行符拼接。
+        包含当前时间、机器人名字和带时间戳的最近 N 条消息。
 
         Args:
             umo: 统一会话标识。
+            bot_name: 机器人名字。
 
         Returns:
-            str: 拼接后的对话文本。
+            str: 格式化的对话上下文文本。
         """
+        max_msgs = int(self._config.get("max_context_messages", 5))
         buffer = self._get_buffer(umo)
-        return "\n".join(list(buffer)[-10:])
+        recent = list(buffer)[-max_msgs:]
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lines = [
+            f"当前时间: {now}",
+            f"机器人名字: {bot_name}",
+        ]
+
+        if recent:
+            lines.append("\n最近 {0} 条消息:".format(len(recent)))
+            for ts, label in recent:
+                time_str = ts.strftime("%H:%M:%S")
+                lines.append(f"[{time_str}] {label}")
+
+        return "\n".join(lines)
 
     @staticmethod
     def _is_targeted(event: AstrMessageEvent) -> bool:
@@ -82,7 +117,7 @@ class ChatHandler:
         """拦截所有消息，调用辅助模型判断是否适合回复。
 
         如果用户明确 @或唤醒了机器人，跳过判断直接回复。
-        否则将对话上下文发给辅助模型评分，得分不达标则阻断默认 LLM 调用。
+        否则将对话上下文发给辅助模型评分，得分不达标则禁用 LLM 调用并清空结果。
 
         Args:
             event: 消息事件。
@@ -95,7 +130,7 @@ class ChatHandler:
 
         extra_marker = " [@机器人/唤醒]" if is_targeted else ""
         labeled = f"[{sender_name}]{extra_marker}: {outline}"
-        self._get_buffer(umo).append(labeled)
+        self._get_buffer(umo).append((datetime.now(), labeled))
 
         if is_targeted:
             logger.info("[Volitional] 明确@唤醒，跳过判断，直接回复")
@@ -108,7 +143,8 @@ class ChatHandler:
                 reason="用户明确@或唤醒了机器人，必须回复。",
             )
         else:
-            conversation_text = self._build_conversation_text(umo)
+            bot_name = self._resolve_bot_name(event)
+            conversation_text = self._build_conversation_text(umo, bot_name)
             try:
                 score: JudgmentScore = await self.judgment_helper.judge(
                     conversation_text
@@ -126,7 +162,7 @@ class ChatHandler:
                 f"skip reply | reason: {score.reason}"
             )
             event.should_call_llm(False)
-            event.stop_event()
+            event.clear_result()
 
     async def inject_judgment(self, event: AstrMessageEvent, req: ProviderRequest):
         """LLM 请求前，将判断上下文注入 system_prompt。
@@ -171,7 +207,7 @@ class ChatHandler:
             )
             umo = self._get_umo(event)
             preview = response.completion_text[:200]
-            self._get_buffer(umo).append(f"[Bot]: {preview}")
+            self._get_buffer(umo).append((datetime.now(), f"[Bot]: {preview}"))
 
     async def final_decorate(self, event: AstrMessageEvent):
         """发送消息前对最终输出进行修饰。

@@ -32,7 +32,7 @@ class PluginVolitional(Star):
     async def initialize(self):
         """插件激活时调用，初始化 JudgmentHelper、ChatHandler 和后台轮询任务。"""
         helper = JudgmentHelper(self.context, self.config)
-        self._chat_handler = ChatHandler(helper)
+        self._chat_handler = ChatHandler(helper, self.config)
         self._task = asyncio.create_task(self._periodic_loop())
 
     # ------ 全流程接管：4 个钩子，由 ChatHandler 处理实际逻辑 ------ #
