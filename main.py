@@ -5,8 +5,8 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.provider import ProviderRequest, LLMResponse
 
-from judgment_helper import JudgmentHelper
-from chat_handler import ChatHandler
+from .judgment_helper import JudgmentHelper
+from .chat_handler import ChatHandler
 
 
 @register("volitional", "boil-mushrooms", "主动判断聊天回复时机，接管全流程聊天信息", "1.0.0")

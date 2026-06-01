@@ -4,7 +4,7 @@ from typing import Optional
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.star import Context
 
-from models import JudgmentScore
+from .models import JudgmentScore
 
 
 class JudgmentHelper:

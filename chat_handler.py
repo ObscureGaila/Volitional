@@ -4,8 +4,8 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest, LLMResponse
 from astrbot.api import logger
 
-from judgment_helper import JudgmentHelper
-from models import JudgmentScore
+from .judgment_helper import JudgmentHelper
+from .models import JudgmentScore
 
 
 class ChatHandler:
