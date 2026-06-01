@@ -134,6 +134,12 @@ class ChatHandler:
         labeled = f"[{sender_name}]{extra_marker}: {outline}"
         self._get_buffer(umo).append((datetime.now(), labeled))
 
+        logger.info(
+            f"[Volitional] record | sender={sender_name} | umo={umo[-20:]} | "
+            f"is_wake={event.is_wake_up()} | is_targeted={is_targeted} | "
+            f"msg={outline[:60]}"
+        )
+
     # ② LLM 请求前：运行判断 + 注入上下文
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         """LLM 请求前运行辅助模型判断，决定是否回复。
@@ -148,6 +154,11 @@ class ChatHandler:
         is_targeted = self._is_targeted(event)
         umo = self._get_umo(event)
 
+        logger.info(
+            f"[Volitional] on_llm_request | umo={umo[-20:]} | "
+            f"is_targeted={is_targeted} | prompt_len={len(req.prompt)}"
+        )
+
         if is_targeted:
             logger.info("[Volitional] 明确@唤醒，跳过判断，直接回复")
             score = JudgmentScore(
@@ -161,9 +172,20 @@ class ChatHandler:
         else:
             bot_name = self._resolve_bot_name(event)
             conversation_text = self._build_conversation_text(umo, bot_name)
+            logger.debug(
+                f"[Volitional] judging:\n{conversation_text[:500]}"
+            )
             try:
                 score: JudgmentScore = await self.judgment_helper.judge(
                     conversation_text
+                )
+                logger.info(
+                    f"[Volitional] judged | overall={score.overall:.3f} | "
+                    f"should_reply={score.should_reply} | "
+                    f"relevance={score.relevance:.2f} replyability={score.replyability:.2f} "
+                    f"emotion={score.emotional_suitability:.2f} "
+                    f"info_density={score.information_density:.2f} "
+                    f"naturalness={score.intervention_naturalness:.2f}"
                 )
             except Exception as e:
                 logger.error(f"Judgment failed: {e}")
@@ -180,6 +202,7 @@ class ChatHandler:
             event.stop_event()
             return
 
+        logger.info(f"[Volitional] reply granted, injecting context to system_prompt")
         parts = [
             "\n[主动介入上下文]",
             f"综合回复意愿得分: {score.overall:.2f} / 1.0",
