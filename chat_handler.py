@@ -9,31 +9,84 @@ from .models import JudgmentScore
 
 
 class ChatHandler:
-    """全权接管聊天信息：拦截消息 → 判断是否回复 → 注入上下文 → 修改输出"""
+    """全权接管聊天信息：拦截消息 → 判断是否回复 → 注入上下文 → 修改输出。
+
+    通过 AstrBot 生命周期的 4 个钩子实现对消息的全流程控制：
+    1. 拦截所有消息，调用辅助模型判断是否适合回复
+    2. LLM 请求前注入判断上下文到 system_prompt
+    3. LLM 响应后记录日志和对话历史
+    4. 发送消息前的最终修饰
+    """
 
     def __init__(self, judgment_helper: JudgmentHelper):
+        """初始化聊天处理器。
+
+        Args:
+            judgment_helper: JudgmentHelper 单例，用于调用辅助模型进行回复判断。
+        """
         self.judgment_helper = judgment_helper
         self._conversation_buffers: dict[str, deque[str]] = {}
         self._max_buffer_size = 20
 
     def _get_umo(self, event: AstrMessageEvent) -> str:
+        """从事件中提取统一会话标识。
+
+        Args:
+            event: 消息事件。
+
+        Returns:
+            str: unified_msg_origin 字符串。
+        """
         return event.unified_msg_origin
 
     def _get_buffer(self, umo: str) -> deque[str]:
+        """获取指定会话的历史消息缓冲区。
+
+        Args:
+            umo: 统一会话标识。
+
+        Returns:
+            deque[str]: 该会话的定长消息缓冲区，最大容量为 _max_buffer_size。
+        """
         if umo not in self._conversation_buffers:
             self._conversation_buffers[umo] = deque(maxlen=self._max_buffer_size)
         return self._conversation_buffers[umo]
 
     def _build_conversation_text(self, umo: str) -> str:
+        """构建发送给辅助模型的对话文本。
+
+        取指定会话缓冲区的最近 10 条消息，用换行符拼接。
+
+        Args:
+            umo: 统一会话标识。
+
+        Returns:
+            str: 拼接后的对话文本。
+        """
         buffer = self._get_buffer(umo)
         return "\n".join(list(buffer)[-10:])
 
     @staticmethod
     def _is_targeted(event: AstrMessageEvent) -> bool:
+        """判断是否明确@唤醒或使用了唤醒词。
+
+        Args:
+            event: 消息事件。
+
+        Returns:
+            bool: True 表示用户明确呼叫了机器人。
+        """
         return event.is_at_or_wake_command
 
-    # ① 拦截所有消息，运行判断
     async def on_all_message(self, event: AstrMessageEvent):
+        """拦截所有消息，调用辅助模型判断是否适合回复。
+
+        如果用户明确 @或唤醒了机器人，跳过判断直接回复。
+        否则将对话上下文发给辅助模型评分，得分不达标则阻断默认 LLM 调用。
+
+        Args:
+            event: 消息事件。
+        """
         is_targeted = self._is_targeted(event)
 
         outline = event.get_message_outline()
@@ -45,7 +98,7 @@ class ChatHandler:
         self._get_buffer(umo).append(labeled)
 
         if is_targeted:
-            logger.info(f"[Volitional] 明确@唤醒，跳过判断，直接回复")
+            logger.info("[Volitional] 明确@唤醒，跳过判断，直接回复")
             score = JudgmentScore(
                 relevance=1.0,
                 replyability=1.0,
@@ -75,8 +128,15 @@ class ChatHandler:
             event.should_call_llm(False)
             event.stop_event()
 
-    # ② LLM 请求前：注入判断上下文
     async def inject_judgment(self, event: AstrMessageEvent, req: ProviderRequest):
+        """LLM 请求前，将判断上下文注入 system_prompt。
+
+        仅当 should_reply 为 True 时生效，向 LLM 提供各维度评分和回复建议。
+
+        Args:
+            event: 消息事件。
+            req: 即将发送给 LLM 的请求对象，可直接修改其字段。
+        """
         score: JudgmentScore | None = event.get_extra("judgment_score")
         if not score or not score.should_reply:
             return
@@ -94,8 +154,15 @@ class ChatHandler:
         ]
         req.system_prompt += "\n".join(parts)
 
-    # ③ LLM 响应后：记录日志和对话历史
     async def log_response(self, event: AstrMessageEvent, response: LLMResponse):
+        """LLM 响应后，记录日志并追加 Bot 回复到历史缓冲区。
+
+        仅当 should_reply 为 True 时执行。
+
+        Args:
+            event: 消息事件。
+            response: LLM 返回的响应对象。
+        """
         score: JudgmentScore | None = event.get_extra("judgment_score")
         if score and score.should_reply:
             logger.info(
@@ -106,8 +173,14 @@ class ChatHandler:
             preview = response.completion_text[:200]
             self._get_buffer(umo).append(f"[Bot]: {preview}")
 
-    # ④ 发送消息前：可选的输出端修饰
     async def final_decorate(self, event: AstrMessageEvent):
+        """发送消息前对最终输出进行修饰。
+
+        仅当 should_reply 为 True 时执行。当前为预留扩展点。
+
+        Args:
+            event: 消息事件。
+        """
         score: JudgmentScore | None = event.get_extra("judgment_score")
         if not score or not score.should_reply:
             return

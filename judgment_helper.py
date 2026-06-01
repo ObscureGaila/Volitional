@@ -8,7 +8,11 @@ from .models import JudgmentScore
 
 
 class JudgmentHelper:
-    """该类用于调用一个小模型，判断多个对话与主AI的联系，并给出一部分判断评分"""
+    """调用辅助模型对对话进行评分，判断机器人是否适合回复。
+
+    单例模式，通过辅助 LLM 对对话内容的 7 个维度打分，
+    加权计算综合得分后与阈值比较，决定是否建议回复。
+    """
 
     _instance = None
 
@@ -25,11 +29,26 @@ class JudgmentHelper:
     DEFAULT_REPLY_THRESHOLD = 0.55
 
     def __new__(cls, *args, **kwargs):
+        """确保全局只有一个 JudgmentHelper 实例。
+
+        Args:
+            *args: 传递给 __init__ 的位置参数。
+            **kwargs: 传递给 __init__ 的关键词参数。
+
+        Returns:
+            JudgmentHelper: 全局唯一实例。
+        """
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self, context: Optional[Context] = None, config: Optional[AstrBotConfig] = None):
+        """初始化 JudgmentHelper（仅首次调用生效）。
+
+        Args:
+            context: AstrBot 插件上下文，用于调用 LLM。
+            config: 插件配置对象，包含 aux_provider、weights、reply_threshold 等。
+        """
         if not hasattr(self, '_initialized'):
             self.context = context
             self.config = config
@@ -86,6 +105,13 @@ class JudgmentHelper:
 
     @property
     def weights(self) -> dict:
+        """获取各项指标的评分权重。
+
+        优先从插件配置中读取，若未配置则使用默认权重。
+
+        Returns:
+            dict: 指标名到权重的映射，如 {"relevance": 0.25, ...}。
+        """
         if self.config and "weights" in self.config and self.config["weights"]:
             result = {}
             for key in self.DEFAULT_WEIGHTS:
@@ -95,11 +121,26 @@ class JudgmentHelper:
 
     @property
     def reply_threshold(self) -> float:
+        """获取回复阈值。
+
+        综合得分需 >= 此值才建议回复。优先从插件配置读取，默认 0.55。
+
+        Returns:
+            float: 回复阈值 (0~1)。
+        """
         if self.config and "reply_threshold" in self.config:
             return float(self.config["reply_threshold"])
         return self.DEFAULT_REPLY_THRESHOLD
 
     def compute_score(self, metrics: dict) -> JudgmentScore:
+        """根据各指标原始值，加权计算综合得分并生成判断结果。
+
+        Args:
+            metrics: 辅助模型返回的原始指标字典，如 {"relevance": 0.8, ...}。
+
+        Returns:
+            JudgmentScore: 包含各指标值、综合得分、是否建议回复及理由。
+        """
         score = JudgmentScore()
         weights = self.weights
         threshold = self.reply_threshold
