@@ -24,26 +24,45 @@ class ChatHandler:
             self._conversation_buffers[umo] = deque(maxlen=self._max_buffer_size)
         return self._conversation_buffers[umo]
 
-    def _build_conversation_text(self, umo: str, current_msg: str) -> str:
+    def _build_conversation_text(self, umo: str) -> str:
         buffer = self._get_buffer(umo)
-        parts = list(buffer)[-10:] + [current_msg]
-        return "\n".join(parts)
+        return "\n".join(list(buffer)[-10:])
+
+    @staticmethod
+    def _is_targeted(event: AstrMessageEvent) -> bool:
+        return event.is_at_or_wake_command
 
     # ① 拦截所有消息，运行判断
     async def on_all_message(self, event: AstrMessageEvent):
-        text = event.get_message_str()
+        is_targeted = self._is_targeted(event)
+
+        outline = event.get_message_outline()
         sender_name = event.get_sender_name() or "未知用户"
         umo = self._get_umo(event)
 
-        labeled = f"[{sender_name}]: {text}"
+        extra_marker = " [@机器人/唤醒]" if is_targeted else ""
+        labeled = f"[{sender_name}]{extra_marker}: {outline}"
         self._get_buffer(umo).append(labeled)
 
-        conversation_text = self._build_conversation_text(umo, text)
-        try:
-            score: JudgmentScore = await self.judgment_helper.judge(conversation_text)
-        except Exception as e:
-            logger.error(f"Judgment failed: {e}")
-            return
+        if is_targeted:
+            logger.info(f"[Volitional] 明确@唤醒，跳过判断，直接回复")
+            score = JudgmentScore(
+                relevance=1.0,
+                replyability=1.0,
+                overall=1.0,
+                should_reply=True,
+                reply_threshold=self.judgment_helper.reply_threshold,
+                reason="用户明确@或唤醒了机器人，必须回复。",
+            )
+        else:
+            conversation_text = self._build_conversation_text(umo)
+            try:
+                score: JudgmentScore = await self.judgment_helper.judge(
+                    conversation_text
+                )
+            except Exception as e:
+                logger.error(f"Judgment failed: {e}")
+                return
 
         event.set_extra("judgment_score", score)
         event.set_extra("should_reply", score.should_reply)
