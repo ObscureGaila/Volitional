@@ -1,14 +1,33 @@
-# astrbot-plugin-helloworld
+# 随心所动 (Volitional)
 
-AstrBot 插件模板 / A template plugin for AstrBot plugin feature
+让 AstrBot 具备"主动意识"——通过辅助模型判断对话时机，只在合适的时候回复。
 
-> [!NOTE]
-> This repo is just a template of [AstrBot](https://github.com/AstrBotDevs/AstrBot) Plugin.
-> 
-> [AstrBot](https://github.com/AstrBotDevs/AstrBot) is an agentic assistant for both personal and group conversations. It can be deployed across dozens of mainstream instant messaging platforms, including QQ, Telegram, Feishu, DingTalk, Slack, LINE, Discord, Matrix, etc. In addition, it provides a reliable and extensible conversational AI infrastructure for individuals, developers, and teams. Whether you need a personal AI companion, an intelligent customer support agent, an automation assistant, or an enterprise knowledge base, AstrBot enables you to quickly build AI applications directly within your existing messaging workflows.
+## 工作原理
 
-# Supports
+```
+用户消息 → 辅助模型评分（7维度）→ 加权是否达标？
+                                  ├─ 达标 → 注入上下文 → LLM回复
+                                  └─ 不达标 → 静默跳过
+```
 
-- [AstrBot Repo](https://github.com/AstrBotDevs/AstrBot)
-- [AstrBot Plugin Development Docs (Chinese)](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [AstrBot Plugin Development Docs (English)](https://docs.astrbot.app/en/dev/star/plugin-new.html)
+- 用户明确 @机器人 或使用唤醒词时，跳过判断直接回复
+- 其他消息由辅助模型从 7 个维度评分：关联度、可回复性、语境完整度、情感适合度、时效性、信息密度、介入自然度
+- 综合得分 >= 阈值（默认 0.55）才触发回复
+
+## 配置
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `aux_provider` | 辅助判断模型（建议用小模型省 token） | 必填 |
+| `reply_threshold` | 回复阈值 (0~1) | 0.55 |
+| `weights` | 7 项指标的权重 | 见 `_conf_schema.json` |
+| `poll_interval` | 后台轮询间隔（秒） | 300 |
+
+## 要求
+
+- AstrBot >= v4.5.0
+- 配置至少一个 LLM Provider 作为辅助判断模型
+
+## 安装
+
+将插件目录放入 `data/plugins/`，在 WebUI 中启用并配置 `aux_provider`。
