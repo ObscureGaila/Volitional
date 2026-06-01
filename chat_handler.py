@@ -143,7 +143,9 @@ class ChatHandler:
             f"msg={outline[:60]}"
         )
 
-        event.should_call_llm(True)
+        yield event.request_llm(
+            prompt=event.get_message_str(),
+        )
 
     # ② LLM 请求前：运行判断 + 注入上下文
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):

@@ -42,12 +42,13 @@ class PluginVolitional(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_all_message(self, event: AstrMessageEvent):
-        """记录所有消息到历史缓冲区。
+        """记录所有消息到历史缓冲区，并显式发起 LLM 请求送入判断流程。
 
         Args:
             event: 消息事件。
         """
-        await self._chat_handler.on_all_message(event)
+        async for result in self._chat_handler.on_all_message(event):
+            yield result
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
