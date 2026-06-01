@@ -84,7 +84,8 @@ class JudgmentHelper:
     def _build_judge_prompt(self, conversation_text: str) -> str:
         """构建发送给辅助模型的评分 prompt"""
         return (
-            "你是一个对话分析助手。请根据以下对话内容，判断机器人是否适合回复。\n\n"
+            "你是一个对话分析助手。请根据以下对话内容，判断机器人是否适合回复。\n"
+            "注意：标记为「机器人自己」的消息是机器人发的，可作为语境参考但评分时应降权，这类消息的关联度/可回复性应酌情降低。\n\n"
             + self.describe_metrics()
             + f"\n\n对话内容：\n{conversation_text}"
         )

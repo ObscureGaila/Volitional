@@ -113,6 +113,30 @@ class ChatHandler:
         """
         return event.is_at_or_wake_command
 
+    @staticmethod
+    def _is_noise(outline: str) -> bool:
+        """判断消息是否为无实质内容的噪音，不应触发 LLM。
+
+        纯图片、戳一戳、表情包等不包含文本信息的消息视为噪音。
+
+        Args:
+            outline: 消息概要字符串。
+
+        Returns:
+            bool: True 表示是噪音消息。
+        """
+        noise_patterns = {
+            "[图片]", "[视频]", "[语音]", "[文件]",
+            "[表情]", "[戳一戳]", "[转发消息]",
+            "[ComponentType.Poke]",
+        }
+        stripped = outline.strip()
+        if stripped in noise_patterns:
+            return True
+        if len(stripped) < 2:
+            return True
+        return False
+
     # ① 记录消息 + 显式发起 LLM 请求
     async def on_all_message(self, event: AstrMessageEvent):
         """记录所有消息到历史缓冲区，并显式发起 LLM 请求送入判断流程。
@@ -133,6 +157,9 @@ class ChatHandler:
         extra_marker = " [@机器人/唤醒]" if is_targeted else ""
         labeled = f"[{sender_name}]{extra_marker}: {outline}"
         self._get_buffer(umo).append((datetime.now(), labeled))
+
+        if self._is_noise(outline):
+            return
 
         yield event.request_llm(
             prompt=event.get_message_str(),
@@ -191,24 +218,11 @@ class ChatHandler:
             f"关联={score.relevance:.2f} 可回={score.replyability:.2f}"
         )
 
-        parts = [
-            "\n[主动介入上下文]",
-            f"综合回复意愿得分: {score.overall:.2f} / 1.0",
-            f"关联度: {score.relevance:.2f} | 可回复性: {score.replyability:.2f}",
-            f"情感适合度: {score.emotional_suitability:.2f} | 时效性: {score.timeliness:.2f}",
-            f"介入自然度: {score.intervention_naturalness:.2f}",
-            f"分析: {score.reason}",
-            "",
-            "请在回复时自然地融入对话，不要刻意提及评分和分析过程。",
-            "根据情感适合度和语境，调整语气和风格。",
-        ]
-        req.system_prompt += "\n".join(parts)
+        req.system_prompt += "\n注意：这条消息你没有直接收到@，但经过分析认为适合回复。请自然地参与对话，不要刻意提及自己被叫到或主动介入。"
 
     # ③ LLM 响应后：追加 Bot 回复到历史缓冲区
     async def log_response(self, event: AstrMessageEvent, response: LLMResponse):
-        """LLM 响应后，追加 Bot 回复到历史缓冲区。
-
-        仅当 should_reply 为 True 时执行。
+        """LLM 响应后，追加 Bot 回复到历史缓冲区（标记为机器人自己）。
 
         Args:
             event: 消息事件。
@@ -218,7 +232,7 @@ class ChatHandler:
         if score and score.should_reply:
             umo = self._get_umo(event)
             preview = response.completion_text[:200]
-            self._get_buffer(umo).append((datetime.now(), f"[Bot]: {preview}"))
+            self._get_buffer(umo).append((datetime.now(), f"[机器人自己]: {preview}"))
 
     # ④ 发送消息前：预留扩展
     async def final_decorate(self, event: AstrMessageEvent):
