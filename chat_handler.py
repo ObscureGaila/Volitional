@@ -13,12 +13,10 @@ class ChatHandler:
     """全权接管聊天信息：拦截消息 → 判断是否回复 → 注入上下文 → 修改输出。
 
     通过 AstrBot 生命周期的钩子实现对消息的全流程控制：
-    - event_message_type(ALL): 仅记录消息到缓冲区（不做判断，避免影响事件分发）
-    - on_llm_request: 在此阶段运行判断，决定是否回复，同时注入上下文
-    - on_llm_response: 记录日志和对话历史
-    - on_decorating_result: 发送前的最终修饰
-
-    注意：非 @/唤醒词消息需要 AstrBot 配置为"始终唤醒"才能到达 LLM 阶段并被判断。
+    - event_message_type(ALL): 记录消息到缓冲区 + 显式发起 LLM 请求
+    - on_llm_request: 运行辅助模型判断，决定是否回复，同时注入上下文
+    - on_llm_response: 追加 Bot 回复到历史缓冲区
+    - on_decorating_result: 发送前的最终修饰（预留扩展）
     """
 
     def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig):
@@ -115,12 +113,11 @@ class ChatHandler:
         """
         return event.is_at_or_wake_command
 
-    # ① 仅记录消息，不做判断，不阻断事件分发
+    # ① 记录消息 + 显式发起 LLM 请求
     async def on_all_message(self, event: AstrMessageEvent):
-        """记录所有到达 HandlerStage 的消息到历史缓冲区。
+        """记录所有消息到历史缓冲区，并显式发起 LLM 请求送入判断流程。
 
-        此阶段不运行判断（判断在 on_llm_request 中），
-        仅记录消息以确保缓冲区及时更新。
+        过滤机器人自己的消息，避免回显循环。
 
         Args:
             event: 消息事件。
@@ -136,12 +133,6 @@ class ChatHandler:
         extra_marker = " [@机器人/唤醒]" if is_targeted else ""
         labeled = f"[{sender_name}]{extra_marker}: {outline}"
         self._get_buffer(umo).append((datetime.now(), labeled))
-
-        logger.info(
-            f"[Volitional] record | sender={sender_name} | umo={umo[-20:]} | "
-            f"is_wake={event.is_wake_up()} | is_targeted={is_targeted} | "
-            f"msg={outline[:60]}"
-        )
 
         yield event.request_llm(
             prompt=event.get_message_str(),
@@ -161,13 +152,7 @@ class ChatHandler:
         is_targeted = self._is_targeted(event)
         umo = self._get_umo(event)
 
-        logger.info(
-            f"[Volitional] on_llm_request | umo={umo[-20:]} | "
-            f"is_targeted={is_targeted} | prompt_len={len(req.prompt)}"
-        )
-
         if is_targeted:
-            logger.info("[Volitional] 明确@唤醒，跳过判断，直接回复")
             score = JudgmentScore(
                 relevance=1.0,
                 replyability=1.0,
@@ -179,23 +164,13 @@ class ChatHandler:
         else:
             bot_name = self._resolve_bot_name(event)
             conversation_text = self._build_conversation_text(umo, bot_name)
-            logger.debug(
-                f"[Volitional] judging:\n{conversation_text[:500]}"
-            )
+            logger.debug(f"[Volitional] 判断对话:\n{conversation_text[:500]}")
             try:
                 score: JudgmentScore = await self.judgment_helper.judge(
                     conversation_text
                 )
-                logger.info(
-                    f"[Volitional] judged | overall={score.overall:.3f} | "
-                    f"should_reply={score.should_reply} | "
-                    f"relevance={score.relevance:.2f} replyability={score.replyability:.2f} "
-                    f"emotion={score.emotional_suitability:.2f} "
-                    f"info_density={score.information_density:.2f} "
-                    f"naturalness={score.intervention_naturalness:.2f}"
-                )
             except Exception as e:
-                logger.error(f"Judgment failed: {e}")
+                logger.error(f"[Volitional] 判断失败: {e}")
                 event.stop_event()
                 return
 
@@ -204,13 +179,18 @@ class ChatHandler:
 
         if not score.should_reply:
             logger.info(
-                f"[Volitional] score={score.overall:.3f} < threshold={score.reply_threshold}, "
-                f"skip reply | reason: {score.reason}"
+                f"[Volitional] 跳过 | {score.reason} | "
+                f"综合={score.overall:.2f} 关联={score.relevance:.2f} "
+                f"可回={score.replyability:.2f} 情感={score.emotional_suitability:.2f}"
             )
             event.stop_event()
             return
 
-        logger.info(f"[Volitional] reply granted, injecting context to system_prompt")
+        logger.info(
+            f"[Volitional] 回复 | 综合={score.overall:.2f} "
+            f"关联={score.relevance:.2f} 可回={score.replyability:.2f}"
+        )
+
         parts = [
             "\n[主动介入上下文]",
             f"综合回复意愿得分: {score.overall:.2f} / 1.0",
@@ -224,9 +204,9 @@ class ChatHandler:
         ]
         req.system_prompt += "\n".join(parts)
 
-    # ③ LLM 响应后：记录日志和对话历史
+    # ③ LLM 响应后：追加 Bot 回复到历史缓冲区
     async def log_response(self, event: AstrMessageEvent, response: LLMResponse):
-        """LLM 响应后，记录日志并追加 Bot 回复到历史缓冲区。
+        """LLM 响应后，追加 Bot 回复到历史缓冲区。
 
         仅当 should_reply 为 True 时执行。
 
@@ -236,27 +216,15 @@ class ChatHandler:
         """
         score: JudgmentScore | None = event.get_extra("judgment_score")
         if score and score.should_reply:
-            logger.info(
-                f"[Volitional] LLM replied | score={score.overall:.3f} | "
-                f"preview={response.completion_text[:80]}"
-            )
             umo = self._get_umo(event)
             preview = response.completion_text[:200]
             self._get_buffer(umo).append((datetime.now(), f"[Bot]: {preview}"))
 
-    # ④ 发送消息前：可选的输出端修饰
+    # ④ 发送消息前：预留扩展
     async def final_decorate(self, event: AstrMessageEvent):
-        """发送消息前对最终输出进行修饰。
-
-        仅当 should_reply 为 True 时执行。当前为预留扩展点。
+        """发送消息前对最终输出进行修饰。当前为预留扩展点。
 
         Args:
             event: 消息事件。
         """
-        score: JudgmentScore | None = event.get_extra("judgment_score")
-        if not score or not score.should_reply:
-            return
-
-        result = event.get_result()
-        if not result or not result.chain:
-            return
+        pass

@@ -69,7 +69,6 @@ class JudgmentHelper:
             return JudgmentScore(reason="未配置辅助模型")
 
         prompt = self._build_judge_prompt(conversation_text)
-        logger.debug(f"[JudgmentHelper] calling aux model {provider_id}, prompt_len={len(prompt)}")
         try:
             llm_resp = await self.context.llm_generate(
                 chat_provider_id=provider_id,
@@ -79,10 +78,6 @@ class JudgmentHelper:
             logger.error(f"调用辅助模型失败: {e}")
             return JudgmentScore(reason=f"模型调用失败: {e}")
 
-        logger.debug(
-            f"[JudgmentHelper] aux model response ({len(llm_resp.completion_text)} chars): "
-            f"{llm_resp.completion_text[:200]}"
-        )
         metrics = self._parse_llm_response(llm_resp.completion_text)
         return self.compute_score(metrics)
 
