@@ -3,345 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Volitional - 判断日志</title>
+    <title>Volitional</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
-        h1 { font-size: 20px; margin-bottom: 8px; }
-        .sub { color: #888; font-size: 13px; margin-bottom: 12px; }
-        .toolbar { display: none; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-        .toolbar select { background: #16213e; color: #eee; border: 1px solid #0f3460; border-radius: 6px; padding: 6px 12px; font-size: 13px; outline: none; min-width: 200px; }
-        .toolbar select option { background: #16213e; }
-        .toolbar button { background: #0f3460; color: #eee; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; white-space: nowrap; }
-        .toolbar button:hover { background: #1a4a7a; }
-        .toolbar button.danger { background: #6c1a1a; }
-        .toolbar button.danger:hover { background: #9b2a2a; }
-        .toolbar button.confirming { background: #e74c3c !important; }
-        .sel-bar { display: none; background: #1a3a5c; border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; align-items: center; gap: 10px; }
-        .sel-bar.show { display: flex; }
-        .sel-bar span { font-size: 13px; color: #74b9ff; }
-        .sel-bar button { background: #0f3460; color: #eee; border: none; border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
-        .sel-bar button:hover { background: #1a4a7a; }
-        .sel-bar button.confirming { background: #e74c3c !important; }
-        .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; position: relative; padding-left: 40px; }
-        .card.replied { border-left-color: #00b894; }
-        .card.skipped { border-left-color: #636e72; }
-        .card.selected { background: #1a3a5c; }
-        .card .card-cb { position: absolute; left: 10px; top: 16px; accent-color: #0984e3; cursor: pointer; }
-        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; flex-wrap: wrap; gap: 4px; }
-        .sender-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .sender { font-weight: 600; font-size: 14px; }
-        .chat-info { font-size: 11px; color: #888; }
-        .chat-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-right: 4px; }
-        .chat-group { background: #0984e333; color: #74b9ff; }
-        .chat-private { background: #6c5ce733; color: #a29bfe; }
-        .time { color: #888; font-size: 12px; margin-left: auto; }
-        .score { font-size: 13px; color: #fdcb6e; }
-        .score .val { font-size: 16px; font-weight: 700; }
-        .msg { font-size: 13px; color: #b2bec3; margin: 6px 0; }
-        .reason { font-size: 12px; color: #888; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-        .badge-reply { background: #00b89433; color: #00b894; }
-        .badge-skip { background: #636e7233; color: #636e72; }
-        .btn-del-one { background: none; border: none; color: #636e72; cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1; }
-        .btn-del-one:hover { color: #e17055; }
-        .empty { text-align: center; color: #636e72; padding: 40px; }
-        .error { color: #e17055; text-align: center; padding: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; padding: 40px 24px; min-height: 100vh; }
+        .hero { text-align: center; margin-bottom: 40px; }
+        .hero h1 { font-size: 24px; margin-bottom: 6px; }
+        .hero p { color: #888; font-size: 14px; }
+        .cards { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; max-width: 600px; margin: 0 auto; }
+        .card { background: #16213e; border-radius: 12px; padding: 32px 24px; cursor: pointer; border: 2px solid #0f3460; flex: 1; min-width: 240px; transition: border-color .2s, transform .2s; text-decoration: none; color: inherit; display: block; }
+        .card:hover { border-color: #00b894; transform: translateY(-2px); }
+        .card .icon { font-size: 36px; margin-bottom: 16px; }
+        .card h2 { font-size: 16px; margin-bottom: 8px; }
+        .card p { font-size: 13px; color: #888; line-height: 1.5; }
     </style>
 </head>
 <body>
-    <h1>📊 Volitional 判断日志</h1>
-    <p class="sub" id="subtitle">加载中...</p>
-    <div class="toolbar" id="toolbar"></div>
-    <div class="sel-bar" id="selBar">
-        <span id="selCount">已选 0 条</span>
-        <span id="selBarBtn"></span>
+    <div class="hero">
+        <h1>🎯 随心所动 Volitional</h1>
+        <p>智能判断回复时机，让 Bot 更自然地参与对话</p>
     </div>
-    <div id="list"></div>
+    <div class="cards" id="cards"></div>
 </body>
 <script>
 (function() {
-    var allItems = [];
-    var selectedIds = {};
-    var confirmTimers = {};
-
-    function confirmAction(btn, label, action) {
-        var key = btn.id || Math.random().toString();
-        if (confirmTimers[key]) {
-            clearTimeout(confirmTimers[key]);
-            confirmTimers[key] = null;
-            btn.classList.remove('confirming');
-            btn.textContent = label;
-            action();
-            return;
-        }
-        btn.classList.add('confirming');
-        btn.textContent = '再次点击确认';
-        confirmTimers[key] = setTimeout(function() {
-            confirmTimers[key] = null;
-            btn.classList.remove('confirming');
-            btn.textContent = label;
-        }, 3000);
-    }
-
-    function updateSelBar() {
-        var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; });
-        var bar = document.getElementById('selBar');
-        var cnt = document.getElementById('selCount');
-        if (ids.length > 0) {
-            bar.classList.add('show');
-            cnt.textContent = '已选 ' + ids.length + ' 条';
-        } else {
-            bar.classList.remove('show');
-        }
-    }
-
-    function toggleSelect(jid) {
-        selectedIds[jid] = !selectedIds[jid];
-        updateSelBar();
-        var card = document.getElementById('card_' + jid);
-        if (card) card.classList.toggle('selected', !!selectedIds[jid]);
-    }
-
-    function buildCard(j) {
-        var card = document.createElement('div');
-        card.id = 'card_' + j.id;
-        card.className = 'card ' + (j.should_reply ? 'replied' : 'skipped');
-
-        var cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'card-cb';
-        cb.addEventListener('click', function(e) {
-            e.stopPropagation();
-            toggleSelect(j.id);
-            this.checked = !!selectedIds[j.id];
-        });
-        card.appendChild(cb);
-
-        var header = document.createElement('div');
-        header.className = 'card-header';
-
-        var senderLine = document.createElement('div');
-        senderLine.className = 'sender-line';
-
-        var senderSpan = document.createElement('span');
-        senderSpan.className = 'sender';
-        senderSpan.textContent = j.sender || '?';
-        senderLine.appendChild(senderSpan);
-
-        var badgeSpan = document.createElement('span');
-        badgeSpan.className = 'badge ' + (j.should_reply ? 'badge-reply' : 'badge-skip');
-        badgeSpan.textContent = j.should_reply ? '已回复' : '跳过';
-        senderLine.appendChild(badgeSpan);
-
-        var delBtn = document.createElement('button');
-        delBtn.className = 'btn-del-one';
-        delBtn.textContent = '✕';
-        delBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            deleteSingle(j.id);
-        });
-        senderLine.appendChild(delBtn);
-
-        header.appendChild(senderLine);
-
-        var timeSpan = document.createElement('span');
-        timeSpan.className = 'time';
-        timeSpan.textContent = j.time || '';
-        header.appendChild(timeSpan);
-
-        card.appendChild(header);
-
-        if (j.chat_id) {
-            var chatDiv = document.createElement('div');
-            if (j.chat_type === '群聊') {
-                var gb = document.createElement('span');
-                gb.className = 'chat-badge chat-group';
-                gb.textContent = '群聊';
-                chatDiv.appendChild(gb);
-            } else if (j.chat_type === '私聊') {
-                var pb = document.createElement('span');
-                pb.className = 'chat-badge chat-private';
-                pb.textContent = '私聊';
-                chatDiv.appendChild(pb);
-            }
-            var ci = document.createElement('span');
-            ci.className = 'chat-info';
-            ci.textContent = j.chat_id;
-            chatDiv.appendChild(ci);
-            card.appendChild(chatDiv);
-        }
-
-        var msgDiv = document.createElement('div');
-        msgDiv.className = 'msg';
-        msgDiv.textContent = j.message || '';
-        card.appendChild(msgDiv);
-
-        var scoreDiv = document.createElement('div');
-        scoreDiv.className = 'score';
-        scoreDiv.innerHTML = '综合 <span class="val">' + (j.overall * 100).toFixed(0) + '</span> / 100  |  关联 ' + (j.relevance * 100).toFixed(0) + '  |  可回 ' + (j.replyability * 100).toFixed(0);
-        card.appendChild(scoreDiv);
-
-        var reasonDiv = document.createElement('div');
-        reasonDiv.className = 'reason';
-        reasonDiv.textContent = j.reason || '';
-        card.appendChild(reasonDiv);
-
-        return card;
-    }
-
-    function render(items) {
-        var list = document.getElementById('list');
-        var subtitle = document.getElementById('subtitle');
-        if (!items || items.length === 0) {
-            list.innerHTML = '<div class="empty">暂无判断记录</div>';
-            subtitle.textContent = '随心所动 (volitional)';
-            return;
-        }
-        subtitle.textContent = '共 ' + items.length + ' 条记录';
-        while (list.firstChild) list.removeChild(list.firstChild);
-        items.forEach(function(j) { list.appendChild(buildCard(j)); });
-    }
-
-    function loadChats() {
-        return AstrBotPluginPage.apiGet('/chats').then(function(resp) {
-            if (!resp || !resp.chats) return;
-            var select = document.getElementById('chatFilter');
-            while (select.options.length > 1) select.remove(1);
-            resp.chats.forEach(function(c) {
-                var opt = document.createElement('option');
-                opt.value = c.umo;
-                opt.textContent = (c.chat_type === '群聊' ? '[群] ' : '[私] ') + c.chat_id;
-                select.appendChild(opt);
-            });
-            document.getElementById('toolbar').style.display = select.options.length > 1 ? 'flex' : 'none';
-        }).catch(function() {});
-    }
-
-    function reloadChats() {
-        loadChats();
-    }
-
-    function loadJudgments() {
-        return AstrBotPluginPage.apiGet('/judgments', { limit: '200' }).then(function(resp) {
-            allItems = resp && resp.judgments ? resp.judgments : [];
-            selectedIds = {};
-            updateSelBar();
-            render(allItems);
-        }).catch(function(e) {
-            document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + String(e) + '</div>';
-        });
-    }
-
-    function deleteSingle(id) {
-        AstrBotPluginPage.apiGet('/delete_judgment', { id: id }).then(function() {
-            allItems = allItems.filter(function(j) { return j.id !== id; });
-            delete selectedIds[id];
-            updateSelBar();
-            render(allItems);
-        }).catch(function() {});
-    }
-
-    function deleteSelected() {
-        var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; }).map(Number);
-        if (ids.length === 0) { updateSelBar(); return; }
-        AstrBotPluginPage.apiGet('/delete_judgments', { ids: ids.join(',') }).then(function() {
-            allItems = allItems.filter(function(j) { return ids.indexOf(j.id) === -1; });
-            selectedIds = {};
-            updateSelBar();
-            render(allItems);
-        }).catch(function() {});
-    }
-
-    function deleteChatAll() {
-        var umo = document.getElementById('chatFilter').value;
-        if (!umo) return;
-        AstrBotPluginPage.apiGet('/delete_chat', { umo: umo }).then(function() {
-            document.getElementById('chatFilter').value = '';
-            document.getElementById('btnDelChat').style.display = 'none';
-            loadJudgments();
-            reloadChats();
-        }).catch(function() {});
-    }
-
-    function clearAll() {
-        AstrBotPluginPage.apiGet('/clear_all', {}).then(function() {
-            allItems = [];
-            selectedIds = {};
-            updateSelBar();
-            render([]);
-            document.getElementById('chatFilter').value = '';
-            document.getElementById('btnDelChat').style.display = 'none';
-            reloadChats();
-        }).catch(function() {});
-    }
-
-    function onFilterChange() {
-        var umo = document.getElementById('chatFilter').value;
-        document.getElementById('btnDelChat').style.display = umo ? 'inline-block' : 'none';
-        if (!umo) { render(allItems); return; }
-        AstrBotPluginPage.apiGet('/judgments', { limit: '200', umo: umo }).then(function(resp) {
-            selectedIds = {};
-            updateSelBar();
-            render(resp && resp.judgments ? resp.judgments : []);
-        }).catch(function(e) {
-            document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + String(e) + '</div>';
-        });
-    }
-
-    function buildToolbar() {
-        var toolbar = document.getElementById('toolbar');
-
-        var select = document.createElement('select');
-        select.id = 'chatFilter';
-        var defaultOpt = document.createElement('option');
-        defaultOpt.value = '';
-        defaultOpt.textContent = '全部聊天';
-        select.appendChild(defaultOpt);
-        select.addEventListener('change', onFilterChange);
-        toolbar.appendChild(select);
-
-        var btnDelChat = document.createElement('button');
-        btnDelChat.id = 'btnDelChat';
-        btnDelChat.className = 'danger';
-        btnDelChat.textContent = '删除此聊天全部数据';
-        btnDelChat.style.display = 'none';
-        btnDelChat.addEventListener('click', function() {
-            confirmAction(this, '删除此聊天全部数据', deleteChatAll);
-        });
-        toolbar.appendChild(btnDelChat);
-
-        var btnClearAll = document.createElement('button');
-        btnClearAll.id = 'btnClearAll';
-        btnClearAll.className = 'danger';
-        btnClearAll.textContent = '清空全部数据';
-        btnClearAll.addEventListener('click', function() {
-            confirmAction(this, '清空全部数据', clearAll);
-        });
-        toolbar.appendChild(btnClearAll);
-
-        var btnDelSelected = document.createElement('button');
-        btnDelSelected.id = 'btnDelSelected';
-        btnDelSelected.textContent = '删除选中';
-        document.getElementById('selBarBtn').appendChild(btnDelSelected);
-        btnDelSelected.addEventListener('click', function() {
-            var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; });
-            if (ids.length === 0) return;
-            confirmAction(this, '删除选中', deleteSelected);
-        });
-    }
-
     function main() {
-        document.getElementById('subtitle').textContent = '随心所动 (volitional)';
-        buildToolbar();
-        loadChats().then(function() { loadJudgments(); });
+        var container = document.getElementById('cards');
+
+        function makeCard(icon, title, desc, page) {
+            var a = document.createElement('a');
+            a.className = 'card';
+            a.href = '../' + page + '/index.html';
+            a.target = '_self';
+
+            var iconDiv = document.createElement('div');
+            iconDiv.className = 'icon';
+            iconDiv.textContent = icon;
+            a.appendChild(iconDiv);
+
+            var h2 = document.createElement('h2');
+            h2.textContent = title;
+            a.appendChild(h2);
+
+            var p = document.createElement('p');
+            p.textContent = desc;
+            a.appendChild(p);
+
+            return a;
+        }
+
+        container.appendChild(makeCard('📊', '判断日志', '查看每条消息的回复判断结果、评分详情和冷却状态', 'log'));
+        container.appendChild(makeCard('💬', '聊天记录', '按群聊/私聊查看历史消息，仿 QQ 聊天界面', 'messages'));
     }
 
     var tries = 0;
     var timer = setInterval(function() {
         tries++;
         if (window.AstrBotPluginPage) { clearInterval(timer); main(); }
-        else if (tries > 80) { clearInterval(timer); document.getElementById('list').innerHTML = '<div class="error">SDK 加载超时</div>'; }
+        else if (tries > 80) { clearInterval(timer); main(); }
     }, 100);
 })();
 </script>
