@@ -1,5 +1,6 @@
 import asyncio
 
+from quart import request
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import AstrBotConfig, logger
@@ -48,7 +49,7 @@ class PluginVolitional(Star):
         """注册插件页面使用的 Web API。"""
         db = self._db
 
-        async def api_judgments(request):
+        async def api_judgments():
             try:
                 limit = int(request.args.get("limit", "50"))
                 umo = request.args.get("umo")
