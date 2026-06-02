@@ -268,7 +268,7 @@ class ChatHandler:
             f"关联={score.relevance:.2f} 可回={score.replyability:.2f}"
         )
 
-        req.system_prompt += "\n注意：这条消息你没有直接收到@，但经过分析认为适合回复。请自然地参与对话，不要刻意提及自己被叫到或主动介入。"
+        req.system_prompt += "\n注意：这条消息你没有直接收到@，但经过分析认为适合回复。请自然地参与对话，不要刻意提及自己被叫到或主动介入。\n聊天规则：全程使用现实网友口语，回复尽量简短，单条控制在1～3句话，杜绝长段落、书面修辞、排比抒情、分段小作文；用词生活化、随意，少华丽夸赞，像朋友随口唠嗑，不要多余修饰文案。"
 
     # ③ LLM 响应后：追加 Bot 回复到历史缓冲区
     async def log_response(self, event: AstrMessageEvent, response: LLMResponse):
