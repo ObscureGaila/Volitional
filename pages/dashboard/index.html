@@ -34,15 +34,15 @@
 
     <script>
         (async () => {
-            const list = document.getElementById('list');
-            const subtitle = document.getElementById('subtitle');
+            var list = document.getElementById('list');
+            var subtitle = document.getElementById('subtitle');
 
             try {
                 await AstrBotPluginPage.ready();
-                const ctx = AstrBotPluginPage.getContext();
-                subtitle.textContent = `插件: ${ctx.plugin_name} / 页面: ${ctx.page_name}`;
+                var ctx = AstrBotPluginPage.getContext();
+                subtitle.textContent = '插件: ' + ctx.plugin_name + ' / ' + ctx.page_name;
 
-                const resp = await AstrBotPluginPage.apiGet(
+                var resp = await AstrBotPluginPage.apiGet(
                     '/api/plugin/volitional/judgments?limit=50'
                 );
 
@@ -51,34 +51,31 @@
                     return;
                 }
 
-                const items = resp.judgments;
-                subtitle.textContent = `共 ${items.length} 条判断记录`;
-                list.innerHTML = items.map(j => {
-                    const cls = j.should_reply ? 'replied' : 'skipped';
-                    const badge = j.should_reply
+                var items = resp.judgments;
+                subtitle.textContent = '共 ' + items.length + ' 条判断记录';
+                list.innerHTML = items.map(function(j) {
+                    var cls = j.should_reply ? 'replied' : 'skipped';
+                    var badge = j.should_reply
                         ? '<span class="badge badge-reply">已回复</span>'
                         : '<span class="badge badge-skip">跳过</span>';
-                    return `
-                        <div class="card ${cls}">
-                            <div class="card-header">
-                                <span class="sender">${esc(j.sender)} ${badge}</span>
-                                <span class="time">${esc(j.time)}</span>
-                            </div>
-                            <div class="msg">${esc(j.message)}</div>
-                            <div class="score">综合 <span class="val">${(j.overall * 100).toFixed(0)}</span> / 100 &nbsp; 关联 ${(j.relevance * 100).toFixed(0)} &nbsp; 可回 ${(j.replyability * 100).toFixed(0)}</div>
-                            <div class="reason">${esc(j.reason)}</div>
-                        </div>
-                    `;
+                    return '<div class="card ' + cls + '">' +
+                        '<div class="card-header">' +
+                            '<span class="sender">' + esc(j.sender) + ' ' + badge + '</span>' +
+                            '<span class="time">' + esc(j.time) + '</span>' +
+                        '</div>' +
+                        '<div class="msg">' + esc(j.message) + '</div>' +
+                        '<div class="score">综合 <span class="val">' + (j.overall * 100).toFixed(0) + '</span> / 100  |  关联 ' + (j.relevance * 100).toFixed(0) + '  |  可回 ' + (j.replyability * 100).toFixed(0) + '</div>' +
+                        '<div class="reason">' + esc(j.reason) + '</div>' +
+                    '</div>';
                 }).join('');
             } catch (e) {
-                list.innerHTML = `<div class="error">加载失败: ${esc(String(e))}</div>`;
-                console.error(e);
+                list.innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
             }
         })();
 
         function esc(s) {
             if (!s) return '';
-            const d = document.createElement('div');
+            var d = document.createElement('div');
             d.textContent = s;
             return d.innerHTML;
         }
