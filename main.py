@@ -49,13 +49,17 @@ class PluginVolitional(Star):
         db = self._db
 
         async def api_judgments(request):
-            limit = int(request.args.get("limit", "50"))
-            umo = request.args.get("umo")
-            if umo:
-                rows = db.get_recent_judgments(umo, limit=limit)
-            else:
-                rows = db.get_recent_judgments_all(limit=limit)
-            return {"judgments": rows}
+            try:
+                limit = int(request.args.get("limit", "50"))
+                umo = request.args.get("umo")
+                if umo:
+                    rows = db.get_recent_judgments(umo, limit=limit)
+                else:
+                    rows = db.get_recent_judgments_all(limit=limit)
+                return {"judgments": rows}
+            except Exception as e:
+                logger.error(f"[Volitional] API /judgments 错误: {e}", exc_info=True)
+                return {"status": "error", "message": str(e), "judgments": []}
 
         self.context.register_web_api(
             "/astrbot_plugin_volitional/judgments",
@@ -126,3 +130,5 @@ class PluginVolitional(Star):
             self._task.cancel()
         if self._helper:
             await self._helper.terminate()
+        if self._db:
+            self._db.close()

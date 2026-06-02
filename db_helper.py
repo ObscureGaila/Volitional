@@ -3,39 +3,26 @@ import json
 from pathlib import Path
 from typing import Any
 
-MESSAGE_SCHEMA_DOC = """
-发给 LLM 的消息格式 (OpenAI 兼容):
-
-[
-  {"role": "system", "content": "人设 + 工具指令"},
-  {"role": "user", "content": "用户消息"},
-  {"role": "assistant", "content": "助手回复", "tool_calls": [...]},
-  {"role": "tool", "content": "工具返回", "tool_call_id": "..."},
-  ...
-]
-
-本表按此格式拆分为行存储，一条 DB 行 = 一条 message。
-"""
-
 
 class VolitionalDB:
     """Volitional 插件的 SQLite 数据库工具。
 
     数据文件位于插件数据目录下的 volitional.db。
-    路径由外部通过 data_dir 参数传入，符合 AstrBot 插件数据存储规范。
+    路径由外部通过 data_dir 参数传入。
     """
 
     def __init__(self, data_dir: Path):
         self._db_path = data_dir / "volitional.db"
         self._conn: sqlite3.Connection | None = None
 
-    # ------ 连接管理 ------ #
-
     def _ensure_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self._db_path))
+            self._conn = sqlite3.connect(
+                str(self._db_path), check_same_thread=False
+            )
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.row_factory = sqlite3.Row
         return self._conn
 
     def _cursor(self):
@@ -50,7 +37,6 @@ class VolitionalDB:
 
     def init_tables(self):
         c = self._cursor()
-
         c.execute("""
             CREATE TABLE IF NOT EXISTS conversations (
                 conv_id TEXT PRIMARY KEY,
@@ -64,7 +50,6 @@ class VolitionalDB:
             CREATE INDEX IF NOT EXISTS idx_conv_umo
             ON conversations(umo)
         """)
-
         c.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,7 +69,6 @@ class VolitionalDB:
             CREATE INDEX IF NOT EXISTS idx_msg_conv_seq
             ON messages(conv_id, seq)
         """)
-
         c.execute("""
             CREATE TABLE IF NOT EXISTS judgment_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +89,6 @@ class VolitionalDB:
             CREATE INDEX IF NOT EXISTS idx_judgment_umo
             ON judgment_log(umo)
         """)
-
         c.execute("""
             CREATE TABLE IF NOT EXISTS kv_store (
                 key TEXT PRIMARY KEY,
@@ -125,32 +108,6 @@ class VolitionalDB:
         )
         self._ensure_conn().commit()
 
-    def get_conversation(self, conv_id: str) -> dict | None:
-        c = self._cursor()
-        row = c.execute(
-            "SELECT conv_id, umo, title, created_at, updated_at "
-            "FROM conversations WHERE conv_id = ?",
-            (conv_id,),
-        ).fetchone()
-        if row:
-            return {
-                "conv_id": row[0], "umo": row[1], "title": row[2],
-                "created_at": row[3], "updated_at": row[4],
-            }
-        return None
-
-    def list_conversations(self, umo: str) -> list[dict]:
-        c = self._cursor()
-        rows = c.execute(
-            "SELECT conv_id, title, created_at, updated_at "
-            "FROM conversations WHERE umo = ? ORDER BY updated_at DESC",
-            (umo,),
-        ).fetchall()
-        return [
-            {"conv_id": r[0], "title": r[1], "created_at": r[2], "updated_at": r[3]}
-            for r in rows
-        ]
-
     # ------ 消息管理 (OpenAI 格式) ------ #
 
     def add_message(
@@ -163,18 +120,15 @@ class VolitionalDB:
         tool_call_id: str | None = None,
         name: str | None = None,
     ):
-        """添加一条消息到对话。
-
-        Args:
-            conv_id: 对话 ID。
-            role: 角色 (system / user / assistant / tool)。
-            content: 消息文本。
-            seq: 序号，None 则自动递增。
-            tool_calls: assistant 的工具调用列表 (OpenAI 格式)。
-            tool_call_id: tool 角色的调用 ID。
-            name: 可选的工具名称。
-        """
         c = self._cursor()
+        exists = c.execute(
+            "SELECT 1 FROM conversations WHERE conv_id = ?", (conv_id,)
+        ).fetchone()
+        if not exists:
+            c.execute(
+                "INSERT INTO conversations (conv_id, umo) VALUES (?, ?)",
+                (conv_id, conv_id),
+            )
         if seq is None:
             max_seq = c.execute(
                 "SELECT COALESCE(MAX(seq), -1) FROM messages WHERE conv_id = ?",
@@ -185,11 +139,9 @@ class VolitionalDB:
         c.execute(
             """INSERT INTO messages (conv_id, seq, role, content, tool_calls, tool_call_id, name)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                conv_id, seq, role, content,
-                json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
-                tool_call_id, name,
-            ),
+            (conv_id, seq, role, content,
+             json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
+             tool_call_id, name),
         )
         self._ensure_conn().execute(
             "UPDATE conversations SET updated_at = datetime('now', 'localtime') "
@@ -199,15 +151,6 @@ class VolitionalDB:
         self._ensure_conn().commit()
 
     def get_messages(self, conv_id: str, limit: int | None = None) -> list[dict]:
-        """获取对话的消息列表，按 seq 排序。
-
-        Args:
-            conv_id: 对话 ID。
-            limit: 返回最近 N 条，None 返回全部。
-
-        Returns:
-            list[dict]: 消息列表，格式兼容 OpenAI messages。
-        """
         c = self._cursor()
         if limit:
             rows = c.execute(
@@ -237,7 +180,6 @@ class VolitionalDB:
         return result
 
     def get_messages_as_openai_json(self, conv_id: str) -> str:
-        """获取对话的完整消息列表，返回 OpenAI 兼容的 JSON 字符串。"""
         return json.dumps(self.get_messages(conv_id), ensure_ascii=False)
 
     def count_messages(self, conv_id: str) -> int:
@@ -341,8 +283,3 @@ class VolitionalDB:
         c = self._cursor()
         c.execute("DELETE FROM kv_store WHERE key = ?", (key,))
         self._ensure_conn().commit()
-
-    def keys(self) -> list[str]:
-        c = self._cursor()
-        rows = c.execute("SELECT key FROM kv_store").fetchall()
-        return [r[0] for r in rows]
