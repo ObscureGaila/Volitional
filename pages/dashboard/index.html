@@ -16,15 +16,11 @@
         .toolbar button:hover { background: #1a4a7a; }
         .toolbar button.danger { background: #6c1a1a; }
         .toolbar button.danger:hover { background: #9b2a2a; }
-        .toolbar button.action { background: #c0392b; }
-        .toolbar button.action:hover { background: #e74c3c; }
         .sel-bar { display: none; background: #1a3a5c; border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; align-items: center; gap: 10px; }
         .sel-bar.show { display: flex; }
         .sel-bar span { font-size: 13px; color: #74b9ff; }
         .sel-bar button { background: #0f3460; color: #eee; border: none; border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
         .sel-bar button:hover { background: #1a4a7a; }
-        .checkbox-wrap { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: #888; margin-right: 10px; }
-        .checkbox-wrap input { accent-color: #0984e3; }
         .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; position: relative; }
         .card.replied { border-left-color: #00b894; }
         .card.skipped { border-left-color: #636e72; }
@@ -55,15 +51,15 @@
     <h1>📊 Volitional 判断日志</h1>
     <p class="sub" id="subtitle">加载中...</p>
     <div class="toolbar" id="toolbar" style="display:none;">
-        <select id="chatFilter">
+        <select id="chatFilter" onchange="VolitionalDash.onFilterChange()">
             <option value="">全部聊天</option>
         </select>
-        <button class="danger" id="btnDelChat" style="display:none;">删除此聊天全部数据</button>
-        <button class="danger" id="btnClearAll">清空全部数据</button>
+        <button class="danger" id="btnDelChat" style="display:none;" onclick="VolitionalDash.deleteChatAll()">删除此聊天全部数据</button>
+        <button class="danger" onclick="VolitionalDash.clearAll()">清空全部数据</button>
     </div>
     <div class="sel-bar" id="selBar">
         <span id="selCount">已选 0 条</span>
-        <button id="btnDelSelected">删除选中</button>
+        <button onclick="VolitionalDash.deleteSelected()">删除选中</button>
     </div>
     <div id="list"></div>
 </body>
@@ -120,11 +116,11 @@
             }
             var chatIdDisplay = j.chat_id ? '<span class="chat-info">' + chatTypeBadge + esc(j.chat_id) + '</span>' : '';
             return '<div class="card ' + cls + (selectedIds[j.id] ? ' selected' : '') + '" data-id="' + j.id + '">' +
-                '<input type="checkbox" class="card-cb"' + (selectedIds[j.id] ? ' checked' : '') + ' title="选择">' +
+                '<input type="checkbox" class="card-cb"' + (selectedIds[j.id] ? ' checked' : '') + ' onclick="VolitionalDash.toggleSelect(' + j.id + ')" title="选择">' +
                 '<div class="card-header">' +
                     '<div class="left">' +
                         '<span class="sender">' + esc(j.sender) + ' ' + badge + '</span>' +
-                        '<button class="btn-del-one" data-id="' + j.id + '" title="删除此条">✕</button>' +
+                        '<button class="btn-del-one" onclick="VolitionalDash.deleteSingle(' + j.id + ')">✕</button>' +
                     '</div>' +
                     '<span class="time">' + esc(j.time) + '</span>' +
                 '</div>' +
@@ -134,20 +130,6 @@
                 '<div class="reason">' + esc(j.reason) + '</div>' +
             '</div>';
         }).join('');
-
-        document.querySelectorAll('.card-cb').forEach(function(cb) {
-            cb.addEventListener('click', function(e) {
-                e.stopPropagation();
-                toggleSelect(parseInt(this.parentElement.getAttribute('data-id')));
-                this.checked = selectedIds[parseInt(this.parentElement.getAttribute('data-id'))];
-            });
-        });
-        document.querySelectorAll('.btn-del-one').forEach(function(btn) {
-            btn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                deleteSingle(parseInt(this.getAttribute('data-id')));
-            });
-        });
     }
 
     function loadChats() {
@@ -236,33 +218,34 @@
         });
     }
 
+    function onFilterChange() {
+        var umo = document.getElementById('chatFilter').value;
+        document.getElementById('btnDelChat').style.display = umo ? 'inline-block' : 'none';
+        if (!umo) {
+            render(allItems);
+            return;
+        }
+        AstrBotPluginPage.apiGet('/judgments', { limit: '200', umo: umo }).then(function(resp) {
+            selectedIds = {};
+            updateSelBar();
+            render(resp && resp.judgments ? resp.judgments : []);
+        }).catch(function(e) {
+            document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+        });
+    }
+
+    window.VolitionalDash = {
+        toggleSelect: toggleSelect,
+        deleteSingle: deleteSingle,
+        deleteSelected: deleteSelected,
+        deleteChatAll: deleteChatAll,
+        clearAll: clearAll,
+        onFilterChange: onFilterChange
+    };
+
     function main() {
-        var subtitle = document.getElementById('subtitle');
-        subtitle.textContent = '随心所动 (volitional)';
-
-        loadChats().then(function() {
-            return loadJudgments();
-        });
-
-        document.getElementById('chatFilter').addEventListener('change', function() {
-            var umo = this.value;
-            document.getElementById('btnDelChat').style.display = umo ? 'inline-block' : 'none';
-            if (!umo) {
-                render(allItems);
-                return;
-            }
-            AstrBotPluginPage.apiGet('/judgments', { limit: '200', umo: umo }).then(function(resp) {
-                selectedIds = {};
-                updateSelBar();
-                render(resp && resp.judgments ? resp.judgments : []);
-            }).catch(function(e) {
-                document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
-            });
-        });
-
-        document.getElementById('btnDelSelected').addEventListener('click', deleteSelected);
-        document.getElementById('btnDelChat').addEventListener('click', deleteChatAll);
-        document.getElementById('btnClearAll').addEventListener('click', clearAll);
+        document.getElementById('subtitle').textContent = '随心所动 (volitional)';
+        loadChats().then(function() { loadJudgments(); });
     }
 
     var tries = 0;
