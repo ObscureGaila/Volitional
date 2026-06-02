@@ -5,6 +5,8 @@ version: v0.0.1 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: boil-mushrooms # 作者
 repo: https://github.com/ObscureGaila/Volitional # 插件的仓库地址
 pages:
+  - name: index
+    title: 主页
   - name: dashboard
     title: 判断日志
   - name: messages

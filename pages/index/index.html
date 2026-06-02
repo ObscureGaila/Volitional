@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volitional</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; padding: 40px 24px; min-height: 100vh; }
+        .hero { text-align: center; margin-bottom: 40px; }
+        .hero h1 { font-size: 24px; margin-bottom: 6px; }
+        .hero p { color: #888; font-size: 14px; }
+        .cards { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; max-width: 600px; margin: 0 auto; }
+        .card { background: #16213e; border-radius: 12px; padding: 32px 24px; cursor: pointer; border: 2px solid #0f3460; flex: 1; min-width: 240px; transition: border-color .2s, transform .2s; text-decoration: none; color: inherit; display: block; }
+        .card:hover { border-color: #00b894; transform: translateY(-2px); }
+        .card .icon { font-size: 36px; margin-bottom: 16px; }
+        .card h2 { font-size: 16px; margin-bottom: 8px; }
+        .card p { font-size: 13px; color: #888; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <h1>🎯 随心所动 Volitional</h1>
+        <p>智能判断回复时机，让 Bot 更自然地参与对话</p>
+    </div>
+    <div class="cards" id="cards"></div>
+</body>
+<script>
+(function() {
+    function main() {
+        var container = document.getElementById('cards');
+
+        function makeCard(icon, title, desc, page) {
+            var a = document.createElement('a');
+            a.className = 'card';
+            a.href = '../' + page + '/index.html';
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                window.location.href = this.href;
+            });
+
+            var iconDiv = document.createElement('div');
+            iconDiv.className = 'icon';
+            iconDiv.textContent = icon;
+            a.appendChild(iconDiv);
+
+            var h2 = document.createElement('h2');
+            h2.textContent = title;
+            a.appendChild(h2);
+
+            var p = document.createElement('p');
+            p.textContent = desc;
+            a.appendChild(p);
+
+            return a;
+        }
+
+        container.appendChild(makeCard('📊', '判断日志', '查看每条消息的回复判断结果、评分详情和冷却状态', 'dashboard'));
+        container.appendChild(makeCard('💬', '聊天记录', '按群聊/私聊查看历史消息，仿 QQ 聊天界面', 'messages'));
+    }
+
+    var tries = 0;
+    var timer = setInterval(function() {
+        tries++;
+        if (window.AstrBotPluginPage) { clearInterval(timer); main(); }
+        else if (tries > 80) { clearInterval(timer); main(); }
+    }, 100);
+})();
+</script>
+</html>
