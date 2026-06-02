@@ -9,18 +9,20 @@
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
         h1 { font-size: 20px; margin-bottom: 8px; }
         .sub { color: #888; font-size: 13px; margin-bottom: 12px; }
-        .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+        .toolbar { display: none; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
         .toolbar select { background: #16213e; color: #eee; border: 1px solid #0f3460; border-radius: 6px; padding: 6px 12px; font-size: 13px; outline: none; min-width: 200px; }
         .toolbar select option { background: #16213e; }
         .toolbar button { background: #0f3460; color: #eee; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; white-space: nowrap; }
         .toolbar button:hover { background: #1a4a7a; }
         .toolbar button.danger { background: #6c1a1a; }
         .toolbar button.danger:hover { background: #9b2a2a; }
+        .toolbar button.confirming { background: #e74c3c !important; }
         .sel-bar { display: none; background: #1a3a5c; border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; align-items: center; gap: 10px; }
         .sel-bar.show { display: flex; }
         .sel-bar span { font-size: 13px; color: #74b9ff; }
         .sel-bar button { background: #0f3460; color: #eee; border: none; border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
         .sel-bar button:hover { background: #1a4a7a; }
+        .sel-bar button.confirming { background: #e74c3c !important; }
         .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; position: relative; padding-left: 40px; }
         .card.replied { border-left-color: #00b894; }
         .card.skipped { border-left-color: #636e72; }
@@ -50,31 +52,37 @@
 <body>
     <h1>📊 Volitional 判断日志</h1>
     <p class="sub" id="subtitle">加载中...</p>
-    <div class="toolbar" id="toolbar" style="display:none;">
-        <select id="chatFilter">
-            <option value="">全部聊天</option>
-        </select>
-        <button class="danger" id="btnDelChat" style="display:none;">删除此聊天全部数据</button>
-        <button class="danger" id="btnClearAll">清空全部数据</button>
-        <button id="btnTest" style="background:#e17055;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer;">TEST</button>
-    </div>
+    <div class="toolbar" id="toolbar"></div>
     <div class="sel-bar" id="selBar">
         <span id="selCount">已选 0 条</span>
-        <button id="btnDelSelected">删除选中</button>
+        <span id="selBarBtn"></span>
     </div>
     <div id="list"></div>
 </body>
 <script>
 (function() {
-    function esc(s) {
-        if (!s) return '';
-        var d = document.createElement('div');
-        d.textContent = s;
-        return d.innerHTML;
-    }
-
     var allItems = [];
     var selectedIds = {};
+    var confirmTimers = {};
+
+    function confirmAction(btn, label, action) {
+        var key = btn.id || Math.random().toString();
+        if (confirmTimers[key]) {
+            clearTimeout(confirmTimers[key]);
+            confirmTimers[key] = null;
+            btn.classList.remove('confirming');
+            btn.textContent = label;
+            action();
+            return;
+        }
+        btn.classList.add('confirming');
+        btn.textContent = '再次点击确认';
+        confirmTimers[key] = setTimeout(function() {
+            confirmTimers[key] = null;
+            btn.classList.remove('confirming');
+            btn.textContent = label;
+        }, 3000);
+    }
 
     function updateSelBar() {
         var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; });
@@ -91,7 +99,7 @@
     function toggleSelect(jid) {
         selectedIds[jid] = !selectedIds[jid];
         updateSelBar();
-        var card = document.querySelector('#card_' + jid);
+        var card = document.getElementById('card_' + jid);
         if (card) card.classList.toggle('selected', !!selectedIds[jid]);
     }
 
@@ -118,7 +126,7 @@
 
         var senderSpan = document.createElement('span');
         senderSpan.className = 'sender';
-        senderSpan.textContent = j.sender || '未知用户';
+        senderSpan.textContent = j.sender || '?';
         senderLine.appendChild(senderSpan);
 
         var badgeSpan = document.createElement('span');
@@ -191,44 +199,37 @@
             return;
         }
         subtitle.textContent = '共 ' + items.length + ' 条记录';
-
-        while (list.firstChild) {
-            list.removeChild(list.firstChild);
-        }
-        items.forEach(function(j) {
-            list.appendChild(buildCard(j));
-        });
+        while (list.firstChild) list.removeChild(list.firstChild);
+        items.forEach(function(j) { list.appendChild(buildCard(j)); });
     }
 
     function loadChats() {
         return AstrBotPluginPage.apiGet('/chats').then(function(resp) {
             if (!resp || !resp.chats) return;
             var select = document.getElementById('chatFilter');
+            while (select.options.length > 1) select.remove(1);
             resp.chats.forEach(function(c) {
-                var label = (c.chat_type === '群聊' ? '[群] ' : '[私] ') + c.chat_id;
                 var opt = document.createElement('option');
                 opt.value = c.umo;
-                opt.textContent = label;
+                opt.textContent = (c.chat_type === '群聊' ? '[群] ' : '[私] ') + c.chat_id;
                 select.appendChild(opt);
             });
-            if (resp.chats.length > 0) {
-                document.getElementById('toolbar').style.display = 'flex';
-            }
+            document.getElementById('toolbar').style.display = select.options.length > 1 ? 'flex' : 'none';
         }).catch(function() {});
+    }
+
+    function reloadChats() {
+        loadChats();
     }
 
     function loadJudgments() {
         return AstrBotPluginPage.apiGet('/judgments', { limit: '200' }).then(function(resp) {
-            if (!resp || !resp.judgments) {
-                allItems = [];
-            } else {
-                allItems = resp.judgments;
-            }
+            allItems = resp && resp.judgments ? resp.judgments : [];
             selectedIds = {};
             updateSelBar();
             render(allItems);
         }).catch(function(e) {
-            document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+            document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + String(e) + '</div>';
         });
     }
 
@@ -238,41 +239,32 @@
             delete selectedIds[id];
             updateSelBar();
             render(allItems);
-        }).catch(function(e) {
-            alert('删除失败: ' + String(e));
-        });
+        }).catch(function() {});
     }
 
     function deleteSelected() {
         var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; }).map(Number);
-        if (ids.length === 0) return;
-        if (!confirm('确认删除选中的 ' + ids.length + ' 条记录？')) return;
+        if (ids.length === 0) { updateSelBar(); return; }
         AstrBotPluginPage.apiGet('/delete_judgments', { ids: ids.join(',') }).then(function() {
             allItems = allItems.filter(function(j) { return ids.indexOf(j.id) === -1; });
             selectedIds = {};
             updateSelBar();
             render(allItems);
-        }).catch(function(e) {
-            alert('删除失败: ' + String(e));
-        });
+        }).catch(function() {});
     }
 
     function deleteChatAll() {
         var umo = document.getElementById('chatFilter').value;
         if (!umo) return;
-        if (!confirm('确认删除此聊天的所有数据？')) return;
         AstrBotPluginPage.apiGet('/delete_chat', { umo: umo }).then(function() {
             document.getElementById('chatFilter').value = '';
             document.getElementById('btnDelChat').style.display = 'none';
             loadJudgments();
-        }).catch(function(e) {
-            alert('删除失败: ' + String(e));
-        });
+            reloadChats();
+        }).catch(function() {});
     }
 
     function clearAll() {
-        if (!confirm('确认清空全部数据？此操作不可恢复！')) return;
-        if (!confirm('再次确认？')) return;
         AstrBotPluginPage.apiGet('/clear_all', {}).then(function() {
             allItems = [];
             selectedIds = {};
@@ -280,50 +272,76 @@
             render([]);
             document.getElementById('chatFilter').value = '';
             document.getElementById('btnDelChat').style.display = 'none';
-        }).catch(function(e) {
-            alert('清空失败: ' + String(e));
-        });
+            reloadChats();
+        }).catch(function() {});
     }
 
     function onFilterChange() {
         var umo = document.getElementById('chatFilter').value;
         document.getElementById('btnDelChat').style.display = umo ? 'inline-block' : 'none';
-        if (!umo) {
-            render(allItems);
-            return;
-        }
+        if (!umo) { render(allItems); return; }
         AstrBotPluginPage.apiGet('/judgments', { limit: '200', umo: umo }).then(function(resp) {
             selectedIds = {};
             updateSelBar();
             render(resp && resp.judgments ? resp.judgments : []);
         }).catch(function(e) {
-            document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+            document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + String(e) + '</div>';
+        });
+    }
+
+    function buildToolbar() {
+        var toolbar = document.getElementById('toolbar');
+
+        var select = document.createElement('select');
+        select.id = 'chatFilter';
+        var defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '全部聊天';
+        select.appendChild(defaultOpt);
+        select.addEventListener('change', onFilterChange);
+        toolbar.appendChild(select);
+
+        var btnDelChat = document.createElement('button');
+        btnDelChat.id = 'btnDelChat';
+        btnDelChat.className = 'danger';
+        btnDelChat.textContent = '删除此聊天全部数据';
+        btnDelChat.style.display = 'none';
+        btnDelChat.addEventListener('click', function() {
+            confirmAction(this, '删除此聊天全部数据', deleteChatAll);
+        });
+        toolbar.appendChild(btnDelChat);
+
+        var btnClearAll = document.createElement('button');
+        btnClearAll.id = 'btnClearAll';
+        btnClearAll.className = 'danger';
+        btnClearAll.textContent = '清空全部数据';
+        btnClearAll.addEventListener('click', function() {
+            confirmAction(this, '清空全部数据', clearAll);
+        });
+        toolbar.appendChild(btnClearAll);
+
+        var btnDelSelected = document.createElement('button');
+        btnDelSelected.id = 'btnDelSelected';
+        btnDelSelected.textContent = '删除选中';
+        document.getElementById('selBarBtn').appendChild(btnDelSelected);
+        btnDelSelected.addEventListener('click', function() {
+            var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; });
+            if (ids.length === 0) return;
+            confirmAction(this, '删除选中', deleteSelected);
         });
     }
 
     function main() {
         document.getElementById('subtitle').textContent = '随心所动 (volitional)';
-
-        document.getElementById('chatFilter').addEventListener('change', onFilterChange);
-        document.getElementById('btnDelSelected').addEventListener('click', deleteSelected);
-        document.getElementById('btnDelChat').addEventListener('click', deleteChatAll);
-        document.getElementById('btnClearAll').addEventListener('click', clearAll);
-        document.getElementById('btnTest').addEventListener('click', function() { alert('BTN CLICK OK'); });
-
+        buildToolbar();
         loadChats().then(function() { loadJudgments(); });
     }
 
     var tries = 0;
     var timer = setInterval(function() {
         tries++;
-        if (window.AstrBotPluginPage) {
-            clearInterval(timer);
-            main();
-        } else if (tries > 80) {
-            clearInterval(timer);
-            document.getElementById('list').innerHTML =
-                '<div class="error">SDK 加载超时，请刷新重试</div>';
-        }
+        if (window.AstrBotPluginPage) { clearInterval(timer); main(); }
+        else if (tries > 80) { clearInterval(timer); document.getElementById('list').innerHTML = '<div class="error">SDK 加载超时</div>'; }
     }, 100);
 })();
 </script>
