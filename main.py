@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 from quart import request
 from astrbot.api.event import filter, AstrMessageEvent
@@ -130,6 +131,19 @@ class PluginVolitional(Star):
                 logger.error(f"[Volitional] API /clear_all 错误: {e}", exc_info=True)
                 return {"status": "error", "message": str(e)}
 
+        async def api_page_content():
+            try:
+                page = request.args.get("page", "").strip()
+                allowed = {"log", "messages"}
+                if page not in allowed:
+                    return {"status": "error", "message": "page not allowed"}
+                file_path = Path(__file__).parent / "pages" / page / "index.html"
+                html = file_path.read_text(encoding="utf-8")
+                return {"status": "ok", "html": html}
+            except Exception as e:
+                logger.error(f"[Volitional] API /page_content 错误: {e}", exc_info=True)
+                return {"status": "error", "message": str(e)}
+
         self.context.register_web_api(
             "/astrbot_plugin_volitional/judgments",
             api_judgments,
@@ -177,6 +191,12 @@ class PluginVolitional(Star):
             api_clear_all,
             methods=["GET"],
             desc="清空全部数据",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/page_content",
+            api_page_content,
+            methods=["GET"],
+            desc="获取指定页面的 HTML 内容",
         )
 
     # ------ 全流程接管：4 个钩子，由 ChatHandler 处理实际逻辑 ------ #
