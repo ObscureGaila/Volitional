@@ -65,6 +65,7 @@ class VolitionalDB:
                     ON DELETE CASCADE
             )
         """)
+        self._migrate_add_msg_chat_columns(c)
         c.execute("""
             CREATE INDEX IF NOT EXISTS idx_msg_conv_seq
             ON messages(conv_id, seq)
@@ -73,6 +74,8 @@ class VolitionalDB:
             CREATE TABLE IF NOT EXISTS judgment_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 umo TEXT NOT NULL,
+                chat_type TEXT DEFAULT '',
+                chat_id TEXT DEFAULT '',
                 conv_id TEXT,
                 sender_name TEXT,
                 message TEXT,
@@ -98,6 +101,45 @@ class VolitionalDB:
         """)
         self._ensure_conn().commit()
 
+        self._migrate_add_chat_columns(c)
+
+    def _migrate_add_chat_columns(self, c):
+        try:
+            c.execute("ALTER TABLE judgment_log ADD COLUMN chat_type TEXT DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE judgment_log ADD COLUMN chat_id TEXT DEFAULT ''")
+        except Exception:
+            pass
+        self._ensure_conn().commit()
+
+    def _migrate_add_msg_chat_columns(self, c):
+        try:
+            c.execute("ALTER TABLE messages ADD COLUMN chat_type TEXT DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE messages ADD COLUMN chat_id TEXT DEFAULT ''")
+        except Exception:
+            pass
+        self._ensure_conn().commit()
+
+    @staticmethod
+    def parse_umo(umo: str):
+        parts = umo.split(":", 2)
+        if len(parts) < 3:
+            return "", ""
+        msg_type = parts[1]
+        chat_id = parts[2]
+        if msg_type == "GroupMessage":
+            chat_type = "群聊"
+        elif msg_type == "FriendMessage":
+            chat_type = "私聊"
+        else:
+            chat_type = "其他"
+        return chat_type, chat_id
+
     # ------ 对话管理 ------ #
 
     def create_conversation(self, conv_id: str, umo: str, title: str = ""):
@@ -119,6 +161,8 @@ class VolitionalDB:
         tool_calls: list[dict] | None = None,
         tool_call_id: str | None = None,
         name: str | None = None,
+        chat_type: str = "",
+        chat_id: str = "",
     ):
         c = self._cursor()
         exists = c.execute(
@@ -137,11 +181,11 @@ class VolitionalDB:
             seq = max_seq + 1
 
         c.execute(
-            """INSERT INTO messages (conv_id, seq, role, content, tool_calls, tool_call_id, name)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO messages (conv_id, seq, role, content, tool_calls, tool_call_id, name, chat_type, chat_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (conv_id, seq, role, content,
              json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
-             tool_call_id, name),
+             tool_call_id, name, chat_type, chat_id),
         )
         self._ensure_conn().execute(
             "UPDATE conversations SET updated_at = datetime('now', 'localtime') "
@@ -208,15 +252,19 @@ class VolitionalDB:
         should_reply: bool,
         reason: str,
         conv_id: str | None = None,
+        chat_type: str = "",
+        chat_id: str = "",
     ):
         c = self._cursor()
         c.execute(
             """INSERT INTO judgment_log
-               (umo, conv_id, sender_name, message, overall, relevance, replyability,
-                emotional_suitability, should_reply, reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (umo, conv_id, sender_name, message, overall, relevance, replyability,
-             emotional_suitability, int(should_reply), reason),
+               (umo, chat_type, chat_id, conv_id, sender_name, message,
+                overall, relevance, replyability, emotional_suitability,
+                should_reply, reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (umo, chat_type, chat_id, conv_id, sender_name, message,
+             overall, relevance, replyability, emotional_suitability,
+             int(should_reply), reason),
         )
         self._ensure_conn().commit()
 
@@ -224,7 +272,7 @@ class VolitionalDB:
         c = self._cursor()
         rows = c.execute(
             """SELECT sender_name, message, overall, relevance, replyability,
-                      should_reply, reason, created_at
+                      should_reply, reason, created_at, chat_type, chat_id, umo
                FROM judgment_log
                WHERE umo = ?
                ORDER BY id DESC LIMIT ?""",
@@ -235,6 +283,7 @@ class VolitionalDB:
                 "sender": r[0], "message": r[1], "overall": r[2],
                 "relevance": r[3], "replyability": r[4],
                 "should_reply": bool(r[5]), "reason": r[6], "time": r[7],
+                "chat_type": r[8], "chat_id": r[9], "umo": r[10],
             }
             for r in rows
         ]
@@ -243,7 +292,7 @@ class VolitionalDB:
         c = self._cursor()
         rows = c.execute(
             """SELECT sender_name, message, overall, relevance, replyability,
-                      should_reply, reason, created_at
+                      should_reply, reason, created_at, chat_type, chat_id, umo
                FROM judgment_log
                ORDER BY id DESC LIMIT ?""",
             (limit,),
@@ -253,7 +302,21 @@ class VolitionalDB:
                 "sender": r[0], "message": r[1], "overall": r[2],
                 "relevance": r[3], "replyability": r[4],
                 "should_reply": bool(r[5]), "reason": r[6], "time": r[7],
+                "chat_type": r[8], "chat_id": r[9], "umo": r[10],
             }
+            for r in rows
+        ]
+
+    def get_distinct_chats(self) -> list[dict]:
+        c = self._cursor()
+        rows = c.execute(
+            """SELECT DISTINCT chat_type, chat_id, umo
+               FROM judgment_log
+               WHERE chat_type != ''
+               ORDER BY chat_type, chat_id"""
+        ).fetchall()
+        return [
+            {"chat_type": r[0], "chat_id": r[1], "umo": r[2]}
             for r in rows
         ]
 

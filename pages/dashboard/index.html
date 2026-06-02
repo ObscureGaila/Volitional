@@ -8,12 +8,19 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
         h1 { font-size: 20px; margin-bottom: 8px; }
-        .sub { color: #888; font-size: 13px; margin-bottom: 20px; }
+        .sub { color: #888; font-size: 13px; margin-bottom: 12px; }
+        .filter-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+        .filter-bar select { background: #16213e; color: #eee; border: 1px solid #0f3460; border-radius: 6px; padding: 6px 12px; font-size: 13px; outline: none; min-width: 220px; }
+        .filter-bar select option { background: #16213e; }
         .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; }
         .card.replied { border-left-color: #00b894; }
         .card.skipped { border-left-color: #636e72; }
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px; }
         .sender { font-weight: 600; font-size: 14px; }
+        .chat-info { font-size: 11px; color: #888; }
+        .chat-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-right: 4px; }
+        .chat-group { background: #0984e333; color: #74b9ff; }
+        .chat-private { background: #6c5ce733; color: #a29bfe; }
         .time { color: #888; font-size: 12px; }
         .score { font-size: 13px; color: #fdcb6e; }
         .score .val { font-size: 16px; font-weight: 700; }
@@ -29,6 +36,11 @@
 <body>
     <h1>📊 Volitional 判断日志</h1>
     <p class="sub" id="subtitle">加载中...</p>
+    <div class="filter-bar" id="filterBar" style="display:none;">
+        <select id="chatFilter">
+            <option value="">全部聊天</option>
+        </select>
+    </div>
     <div id="list"></div>
 </body>
 <script>
@@ -40,38 +52,98 @@
         return d.innerHTML;
     }
 
-    function main() {
+    var allItems = [];
+
+    function render(items) {
         var list = document.getElementById('list');
         var subtitle = document.getElementById('subtitle');
-
-        AstrBotPluginPage.ready().then(function() {
+        if (!items || items.length === 0) {
+            list.innerHTML = '<div class="empty">暂无判断记录</div>';
             subtitle.textContent = '随心所动 (volitional)';
+            return;
+        }
+        subtitle.textContent = '共 ' + items.length + ' 条记录';
+        list.innerHTML = items.map(function(j) {
+            var cls = j.should_reply ? 'replied' : 'skipped';
+            var badge = j.should_reply
+                ? '<span class="badge badge-reply">已回复</span>'
+                : '<span class="badge badge-skip">跳过</span>';
+            var chatTypeBadge = '';
+            if (j.chat_type === '群聊') {
+                chatTypeBadge = '<span class="chat-badge chat-group">群聊</span>';
+            } else if (j.chat_type === '私聊') {
+                chatTypeBadge = '<span class="chat-badge chat-private">私聊</span>';
+            }
+            var chatIdDisplay = j.chat_id ? '<span class="chat-info">' + chatTypeBadge + esc(j.chat_id) + '</span>' : '';
+            return '<div class="card ' + cls + '">' +
+                '<div class="card-header">' +
+                    '<span class="sender">' + esc(j.sender) + ' ' + badge + '</span>' +
+                    '<span class="time">' + esc(j.time) + '</span>' +
+                '</div>' +
+                '<div>' + chatIdDisplay + '</div>' +
+                '<div class="msg">' + esc(j.message) + '</div>' +
+                '<div class="score">综合 <span class="val">' + (j.overall * 100).toFixed(0) + '</span> / 100  |  关联 ' + (j.relevance * 100).toFixed(0) + '  |  可回 ' + (j.replyability * 100).toFixed(0) + '</div>' +
+                '<div class="reason">' + esc(j.reason) + '</div>' +
+            '</div>';
+        }).join('');
+    }
 
-            return AstrBotPluginPage.apiGet('/judgments', { limit: '50' });
-        }).then(function(resp) {
-            if (!resp || !resp.judgments || resp.judgments.length === 0) {
-                list.innerHTML = '<div class="empty">暂无判断记录</div>';
+    function loadChats() {
+        return AstrBotPluginPage.apiGet('/chats').then(function(resp) {
+            if (!resp || !resp.chats) return;
+            var select = document.getElementById('chatFilter');
+            resp.chats.forEach(function(c) {
+                var label = (c.chat_type === '群聊' ? '[群] ' : '[私] ') + c.chat_id;
+                var opt = document.createElement('option');
+                opt.value = c.umo;
+                opt.textContent = label;
+                select.appendChild(opt);
+            });
+            if (resp.chats.length > 0) {
+                document.getElementById('filterBar').style.display = 'flex';
+            }
+        }).catch(function() {});
+    }
+
+    function loadJudgments() {
+        return AstrBotPluginPage.apiGet('/judgments', { limit: '50' }).then(function(resp) {
+            if (!resp || !resp.judgments) {
+                allItems = [];
+            } else {
+                allItems = resp.judgments;
+            }
+            render(allItems);
+        }).catch(function(e) {
+            document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+        });
+    }
+
+    function main() {
+        var subtitle = document.getElementById('subtitle');
+        subtitle.textContent = '随心所动 (volitional)';
+
+        loadChats().then(function() {
+            return loadJudgments();
+        });
+
+        document.getElementById('chatFilter').addEventListener('change', function() {
+            var umo = this.value;
+            if (!umo) {
+                render(allItems);
                 return;
             }
-            var items = resp.judgments;
-            subtitle.textContent = '共 ' + items.length + ' 条记录';
-            list.innerHTML = items.map(function(j) {
-                var cls = j.should_reply ? 'replied' : 'skipped';
-                var badge = j.should_reply
-                    ? '<span class="badge badge-reply">已回复</span>'
-                    : '<span class="badge badge-skip">跳过</span>';
-                return '<div class="card ' + cls + '">' +
-                    '<div class="card-header">' +
-                        '<span class="sender">' + esc(j.sender) + ' ' + badge + '</span>' +
-                        '<span class="time">' + esc(j.time) + '</span>' +
-                    '</div>' +
-                    '<div class="msg">' + esc(j.message) + '</div>' +
-                    '<div class="score">综合 <span class="val">' + (j.overall * 100).toFixed(0) + '</span> / 100  |  关联 ' + (j.relevance * 100).toFixed(0) + '  |  可回 ' + (j.replyability * 100).toFixed(0) + '</div>' +
-                    '<div class="reason">' + esc(j.reason) + '</div>' +
-                '</div>';
-            }).join('');
-        }).catch(function(e) {
-            list.innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+            var filtered = allItems.filter(function(j) {
+                return j.umo === umo || j.chat_id === umo;
+            });
+            if (filtered.length === 0) {
+                AstrBotPluginPage.apiGet('/judgments', { limit: '50', umo: umo }).then(function(resp) {
+                    render(resp && resp.judgments ? resp.judgments : []);
+                }).catch(function(e) {
+                    document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+                });
+            } else {
+                render(filtered);
+            }
         });
     }
 

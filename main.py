@@ -46,7 +46,6 @@ class PluginVolitional(Star):
         self._register_web_apis()
 
     def _register_web_apis(self):
-        """注册插件页面使用的 Web API。"""
         db = self._db
 
         async def api_judgments():
@@ -62,11 +61,25 @@ class PluginVolitional(Star):
                 logger.error(f"[Volitional] API /judgments 错误: {e}", exc_info=True)
                 return {"status": "error", "message": str(e), "judgments": []}
 
+        async def api_chats():
+            try:
+                chats = db.get_distinct_chats()
+                return {"chats": chats}
+            except Exception as e:
+                logger.error(f"[Volitional] API /chats 错误: {e}", exc_info=True)
+                return {"chats": []}
+
         self.context.register_web_api(
             "/astrbot_plugin_volitional/judgments",
             api_judgments,
             methods=["GET"],
             desc="获取 Volitional 判断日志",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/chats",
+            api_chats,
+            methods=["GET"],
+            desc="获取 Volitional 可筛选的聊天列表",
         )
 
     # ------ 全流程接管：4 个钩子，由 ChatHandler 处理实际逻辑 ------ #

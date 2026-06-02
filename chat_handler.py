@@ -11,49 +11,31 @@ from .db_helper import VolitionalDB
 
 
 class ChatHandler:
-    """全权接管聊天信息：拦截消息 → 判断是否回复 → 注入上下文 → 修改输出。
-
-    通过 AstrBot 生命周期的钩子实现对消息的全流程控制：
-    - event_message_type(ALL): 记录消息到缓冲区 + 显式发起 LLM 请求
-    - on_llm_request: 运行辅助模型判断，决定是否回复，同时注入上下文
-    - on_llm_response: 追加 Bot 回复到历史缓冲区
-    - on_decorating_result: 发送前的最终修饰（预留扩展）
-    """
 
     def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig, db: VolitionalDB | None = None):
-        """初始化聊天处理器。
 
-        Args:
-            judgment_helper: JudgmentHelper 单例，用于调用辅助模型进行回复判断。
-            config: 插件配置对象。
-            db: VolitionalDB 实例，用于持久化消息和判断日志。
-        """
         self.judgment_helper = judgment_helper
         self._config = config
         self._db = db
         self._conversation_buffers: dict[str, deque[tuple[datetime, str]]] = {}
         self._max_buffer_size = 50
+        self._umo_meta: dict[str, dict[str, str]] = {}
 
     def _get_umo(self, event: AstrMessageEvent) -> str:
-        """从事件中提取统一会话标识。
-
-        Args:
-            event: 消息事件。
-
-        Returns:
-            str: unified_msg_origin 字符串。
-        """
         return event.unified_msg_origin
 
+    def _get_chat_info(self, event: AstrMessageEvent):
+        umo = event.unified_msg_origin
+        chat_type = "私聊"
+        chat_id = event.get_sender_id()
+        if event.get_group_id():
+            chat_type = "群聊"
+            chat_id = event.get_group_id()
+        if umo not in self._umo_meta:
+            self._umo_meta[umo] = {"chat_type": chat_type, "chat_id": chat_id}
+        return chat_type, chat_id
+
     def _get_buffer(self, umo: str) -> deque[tuple[datetime, str]]:
-        """获取指定会话的历史消息缓冲区。
-
-        Args:
-            umo: 统一会话标识。
-
-        Returns:
-            deque: 该会话的定长消息缓冲区，元素为 (时间, 消息标签) 元组。
-        """
         if umo not in self._conversation_buffers:
             self._conversation_buffers[umo] = deque(maxlen=self._max_buffer_size)
         return self._conversation_buffers[umo]
@@ -163,7 +145,9 @@ class ChatHandler:
 
         if self._db:
             try:
-                self._db.add_message(umo, "user", event.get_message_str())
+                chat_type, chat_id = self._get_chat_info(event)
+                self._db.add_message(umo, "user", event.get_message_str(),
+                                     chat_type=chat_type, chat_id=chat_id)
             except Exception as e:
                 logger.warning(f"[Volitional] 持久化用户消息失败: {e}")
 
@@ -215,6 +199,7 @@ class ChatHandler:
 
         if self._db:
             try:
+                chat_type, chat_id = self._get_chat_info(event)
                 self._db.log_judgment(
                     umo=umo,
                     sender_name=event.get_sender_name() or "",
@@ -225,6 +210,8 @@ class ChatHandler:
                     emotional_suitability=score.emotional_suitability,
                     should_reply=score.should_reply,
                     reason=score.reason,
+                    chat_type=chat_type,
+                    chat_id=chat_id,
                 )
             except Exception as e:
                 logger.warning(f"[Volitional] 写入判断日志失败: {e}")
@@ -261,7 +248,9 @@ class ChatHandler:
 
             if self._db:
                 try:
-                    self._db.add_message(umo, "assistant", response.completion_text)
+                    chat_type, chat_id = self._get_chat_info(event)
+                    self._db.add_message(umo, "assistant", response.completion_text,
+                                         chat_type=chat_type, chat_id=chat_id)
                 except Exception as e:
                     logger.warning(f"[Volitional] 持久化助手回复失败: {e}")
 
