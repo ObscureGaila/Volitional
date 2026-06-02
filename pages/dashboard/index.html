@@ -45,8 +45,7 @@
         var subtitle = document.getElementById('subtitle');
 
         AstrBotPluginPage.ready().then(function() {
-            var ctx = AstrBotPluginPage.getContext();
-            subtitle.textContent = '插件: ' + ctx.plugin_name;
+            subtitle.textContent = '随心所动 (volitional)';
 
             return AstrBotPluginPage.apiGet('/judgments', { limit: '50' });
         }).then(function(resp) {

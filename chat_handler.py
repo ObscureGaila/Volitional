@@ -213,6 +213,22 @@ class ChatHandler:
         event.set_extra("judgment_score", score)
         event.set_extra("should_reply", score.should_reply)
 
+        if self._db:
+            try:
+                self._db.log_judgment(
+                    umo=umo,
+                    sender_name=event.get_sender_name() or "",
+                    message=event.get_message_str(),
+                    overall=score.overall,
+                    relevance=score.relevance,
+                    replyability=score.replyability,
+                    emotional_suitability=score.emotional_suitability,
+                    should_reply=score.should_reply,
+                    reason=score.reason,
+                )
+            except Exception as e:
+                logger.warning(f"[Volitional] 写入判断日志失败: {e}")
+
         if not score.should_reply:
             logger.info(
                 f"[Volitional] 跳过 | {score.reason} | "

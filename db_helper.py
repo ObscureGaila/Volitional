@@ -281,7 +281,8 @@ class VolitionalDB:
     def get_recent_judgments(self, umo: str, limit: int = 10) -> list[dict]:
         c = self._cursor()
         rows = c.execute(
-            """SELECT sender_name, message, overall, should_reply, reason, created_at
+            """SELECT sender_name, message, overall, relevance, replyability,
+                      should_reply, reason, created_at
                FROM judgment_log
                WHERE umo = ?
                ORDER BY id DESC LIMIT ?""",
@@ -290,7 +291,26 @@ class VolitionalDB:
         return [
             {
                 "sender": r[0], "message": r[1], "overall": r[2],
-                "should_reply": bool(r[3]), "reason": r[4], "time": r[5],
+                "relevance": r[3], "replyability": r[4],
+                "should_reply": bool(r[5]), "reason": r[6], "time": r[7],
+            }
+            for r in rows
+        ]
+
+    def get_recent_judgments_all(self, limit: int = 50) -> list[dict]:
+        c = self._cursor()
+        rows = c.execute(
+            """SELECT sender_name, message, overall, relevance, replyability,
+                      should_reply, reason, created_at
+               FROM judgment_log
+               ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "sender": r[0], "message": r[1], "overall": r[2],
+                "relevance": r[3], "replyability": r[4],
+                "should_reply": bool(r[5]), "reason": r[6], "time": r[7],
             }
             for r in rows
         ]
