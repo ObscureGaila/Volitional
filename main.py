@@ -88,6 +88,50 @@ class PluginVolitional(Star):
                 logger.error(f"[Volitional] API /messages_detail 错误: {e}", exc_info=True)
                 return {"status": "error", "message": str(e), "messages": []}
 
+        async def api_delete_judgment():
+            try:
+                body = await request.get_json()
+                jid = int(body.get("id", 0))
+                if not jid:
+                    return {"status": "error", "message": "缺少 id"}
+                db.delete_judgment(jid)
+                return {"status": "ok"}
+            except Exception as e:
+                logger.error(f"[Volitional] API /delete_judgment 错误: {e}", exc_info=True)
+                return {"status": "error", "message": str(e)}
+
+        async def api_delete_judgments():
+            try:
+                body = await request.get_json()
+                ids = body.get("ids", [])
+                if not ids:
+                    return {"status": "error", "message": "缺少 ids"}
+                db.delete_judgments_by_ids([int(i) for i in ids])
+                return {"status": "ok"}
+            except Exception as e:
+                logger.error(f"[Volitional] API /delete_judgments 错误: {e}", exc_info=True)
+                return {"status": "error", "message": str(e)}
+
+        async def api_delete_chat():
+            try:
+                body = await request.get_json()
+                umo = body.get("umo", "")
+                if not umo:
+                    return {"status": "error", "message": "缺少 umo"}
+                db.delete_chat_all(umo)
+                return {"status": "ok"}
+            except Exception as e:
+                logger.error(f"[Volitional] API /delete_chat 错误: {e}", exc_info=True)
+                return {"status": "error", "message": str(e)}
+
+        async def api_clear_all():
+            try:
+                db.clear_all_data()
+                return {"status": "ok"}
+            except Exception as e:
+                logger.error(f"[Volitional] API /clear_all 错误: {e}", exc_info=True)
+                return {"status": "error", "message": str(e)}
+
         self.context.register_web_api(
             "/astrbot_plugin_volitional/judgments",
             api_judgments,
@@ -111,6 +155,30 @@ class PluginVolitional(Star):
             api_messages_detail,
             methods=["GET"],
             desc="获取指定对话的消息详情",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/delete_judgment",
+            api_delete_judgment,
+            methods=["POST"],
+            desc="删除单条判断记录",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/delete_judgments",
+            api_delete_judgments,
+            methods=["POST"],
+            desc="批量删除判断记录",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/delete_chat",
+            api_delete_chat,
+            methods=["POST"],
+            desc="删除指定聊天的所有数据",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/clear_all",
+            api_clear_all,
+            methods=["POST"],
+            desc="清空全部数据",
         )
 
     # ------ 全流程接管：4 个钩子，由 ChatHandler 处理实际逻辑 ------ #

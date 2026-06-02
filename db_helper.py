@@ -329,7 +329,7 @@ class VolitionalDB:
     def get_recent_judgments(self, umo: str, limit: int = 10) -> list[dict]:
         c = self._cursor()
         rows = c.execute(
-            """SELECT sender_name, message, overall, relevance, replyability,
+            """SELECT id, sender_name, message, overall, relevance, replyability,
                       should_reply, reason, created_at, chat_type, chat_id, umo
                FROM judgment_log
                WHERE umo = ?
@@ -338,10 +338,10 @@ class VolitionalDB:
         ).fetchall()
         return [
             {
-                "sender": r[0], "message": r[1], "overall": r[2],
-                "relevance": r[3], "replyability": r[4],
-                "should_reply": bool(r[5]), "reason": r[6], "time": r[7],
-                "chat_type": r[8], "chat_id": r[9], "umo": r[10],
+                "id": r[0], "sender": r[1], "message": r[2], "overall": r[3],
+                "relevance": r[4], "replyability": r[5],
+                "should_reply": bool(r[6]), "reason": r[7], "time": r[8],
+                "chat_type": r[9], "chat_id": r[10], "umo": r[11],
             }
             for r in rows
         ]
@@ -349,7 +349,7 @@ class VolitionalDB:
     def get_recent_judgments_all(self, limit: int = 50) -> list[dict]:
         c = self._cursor()
         rows = c.execute(
-            """SELECT sender_name, message, overall, relevance, replyability,
+            """SELECT id, sender_name, message, overall, relevance, replyability,
                       should_reply, reason, created_at, chat_type, chat_id, umo
                FROM judgment_log
                ORDER BY id DESC LIMIT ?""",
@@ -357,13 +357,38 @@ class VolitionalDB:
         ).fetchall()
         return [
             {
-                "sender": r[0], "message": r[1], "overall": r[2],
-                "relevance": r[3], "replyability": r[4],
-                "should_reply": bool(r[5]), "reason": r[6], "time": r[7],
-                "chat_type": r[8], "chat_id": r[9], "umo": r[10],
+                "id": r[0], "sender": r[1], "message": r[2], "overall": r[3],
+                "relevance": r[4], "replyability": r[5],
+                "should_reply": bool(r[6]), "reason": r[7], "time": r[8],
+                "chat_type": r[9], "chat_id": r[10], "umo": r[11],
             }
             for r in rows
         ]
+
+    def delete_judgment(self, jid: int):
+        c = self._cursor()
+        c.execute("DELETE FROM judgment_log WHERE id = ?", (jid,))
+        self._ensure_conn().commit()
+
+    def delete_judgments_by_ids(self, ids: list[int]):
+        c = self._cursor()
+        placeholders = ",".join("?" for _ in ids)
+        c.execute(f"DELETE FROM judgment_log WHERE id IN ({placeholders})", ids)
+        self._ensure_conn().commit()
+
+    def delete_chat_all(self, umo: str):
+        c = self._cursor()
+        c.execute("DELETE FROM judgment_log WHERE umo = ?", (umo,))
+        c.execute("DELETE FROM messages WHERE conv_id = ?", (umo,))
+        c.execute("DELETE FROM conversations WHERE conv_id = ?", (umo,))
+        self._ensure_conn().commit()
+
+    def clear_all_data(self):
+        c = self._cursor()
+        c.execute("DELETE FROM judgment_log")
+        c.execute("DELETE FROM messages")
+        c.execute("DELETE FROM conversations")
+        self._ensure_conn().commit()
 
     def get_distinct_chats(self) -> list[dict]:
         c = self._cursor()

@@ -9,13 +9,29 @@
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
         h1 { font-size: 20px; margin-bottom: 8px; }
         .sub { color: #888; font-size: 13px; margin-bottom: 12px; }
-        .filter-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-        .filter-bar select { background: #16213e; color: #eee; border: 1px solid #0f3460; border-radius: 6px; padding: 6px 12px; font-size: 13px; outline: none; min-width: 220px; }
-        .filter-bar select option { background: #16213e; }
-        .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; }
+        .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+        .toolbar select { background: #16213e; color: #eee; border: 1px solid #0f3460; border-radius: 6px; padding: 6px 12px; font-size: 13px; outline: none; min-width: 200px; }
+        .toolbar select option { background: #16213e; }
+        .toolbar button { background: #0f3460; color: #eee; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+        .toolbar button:hover { background: #1a4a7a; }
+        .toolbar button.danger { background: #6c1a1a; }
+        .toolbar button.danger:hover { background: #9b2a2a; }
+        .toolbar button.action { background: #c0392b; }
+        .toolbar button.action:hover { background: #e74c3c; }
+        .sel-bar { display: none; background: #1a3a5c; border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; align-items: center; gap: 10px; }
+        .sel-bar.show { display: flex; }
+        .sel-bar span { font-size: 13px; color: #74b9ff; }
+        .sel-bar button { background: #0f3460; color: #eee; border: none; border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+        .sel-bar button:hover { background: #1a4a7a; }
+        .checkbox-wrap { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: #888; margin-right: 10px; }
+        .checkbox-wrap input { accent-color: #0984e3; }
+        .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; position: relative; }
         .card.replied { border-left-color: #00b894; }
         .card.skipped { border-left-color: #636e72; }
+        .card.selected { background: #1a3a5c; }
+        .card .card-cb { position: absolute; left: -28px; top: 16px; accent-color: #0984e3; }
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px; }
+        .card-header .left { display: flex; align-items: center; gap: 8px; }
         .sender { font-weight: 600; font-size: 14px; }
         .chat-info { font-size: 11px; color: #888; }
         .chat-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-right: 4px; }
@@ -29,6 +45,8 @@
         .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
         .badge-reply { background: #00b89433; color: #00b894; }
         .badge-skip { background: #636e7233; color: #636e72; }
+        .btn-del-one { background: none; border: none; color: #636e72; cursor: pointer; font-size: 14px; padding: 2px 6px; }
+        .btn-del-one:hover { color: #e17055; }
         .empty { text-align: center; color: #636e72; padding: 40px; }
         .error { color: #e17055; text-align: center; padding: 20px; }
     </style>
@@ -36,10 +54,16 @@
 <body>
     <h1>📊 Volitional 判断日志</h1>
     <p class="sub" id="subtitle">加载中...</p>
-    <div class="filter-bar" id="filterBar" style="display:none;">
+    <div class="toolbar" id="toolbar" style="display:none;">
         <select id="chatFilter">
             <option value="">全部聊天</option>
         </select>
+        <button class="danger" id="btnDelChat" style="display:none;">删除此聊天全部数据</button>
+        <button class="danger" id="btnClearAll">清空全部数据</button>
+    </div>
+    <div class="sel-bar" id="selBar">
+        <span id="selCount">已选 0 条</span>
+        <button id="btnDelSelected">删除选中</button>
     </div>
     <div id="list"></div>
 </body>
@@ -53,6 +77,26 @@
     }
 
     var allItems = [];
+    var selectedIds = {};
+
+    function updateSelBar() {
+        var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; });
+        var bar = document.getElementById('selBar');
+        var cnt = document.getElementById('selCount');
+        if (ids.length > 0) {
+            bar.classList.add('show');
+            cnt.textContent = '已选 ' + ids.length + ' 条';
+        } else {
+            bar.classList.remove('show');
+        }
+    }
+
+    function toggleSelect(id) {
+        selectedIds[id] = !selectedIds[id];
+        updateSelBar();
+        var card = document.querySelector('.card[data-id="' + id + '"]');
+        if (card) card.classList.toggle('selected', selectedIds[id]);
+    }
 
     function render(items) {
         var list = document.getElementById('list');
@@ -75,9 +119,13 @@
                 chatTypeBadge = '<span class="chat-badge chat-private">私聊</span>';
             }
             var chatIdDisplay = j.chat_id ? '<span class="chat-info">' + chatTypeBadge + esc(j.chat_id) + '</span>' : '';
-            return '<div class="card ' + cls + '">' +
+            return '<div class="card ' + cls + (selectedIds[j.id] ? ' selected' : '') + '" data-id="' + j.id + '">' +
+                '<input type="checkbox" class="card-cb"' + (selectedIds[j.id] ? ' checked' : '') + ' title="选择">' +
                 '<div class="card-header">' +
-                    '<span class="sender">' + esc(j.sender) + ' ' + badge + '</span>' +
+                    '<div class="left">' +
+                        '<span class="sender">' + esc(j.sender) + ' ' + badge + '</span>' +
+                        '<button class="btn-del-one" data-id="' + j.id + '" title="删除此条">✕</button>' +
+                    '</div>' +
                     '<span class="time">' + esc(j.time) + '</span>' +
                 '</div>' +
                 '<div>' + chatIdDisplay + '</div>' +
@@ -86,6 +134,20 @@
                 '<div class="reason">' + esc(j.reason) + '</div>' +
             '</div>';
         }).join('');
+
+        document.querySelectorAll('.card-cb').forEach(function(cb) {
+            cb.addEventListener('click', function(e) {
+                e.stopPropagation();
+                toggleSelect(parseInt(this.parentElement.getAttribute('data-id')));
+                this.checked = selectedIds[parseInt(this.parentElement.getAttribute('data-id'))];
+            });
+        });
+        document.querySelectorAll('.btn-del-one').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                deleteSingle(parseInt(this.getAttribute('data-id')));
+            });
+        });
     }
 
     function loadChats() {
@@ -100,21 +162,77 @@
                 select.appendChild(opt);
             });
             if (resp.chats.length > 0) {
-                document.getElementById('filterBar').style.display = 'flex';
+                document.getElementById('toolbar').style.display = 'flex';
             }
         }).catch(function() {});
     }
 
     function loadJudgments() {
-        return AstrBotPluginPage.apiGet('/judgments', { limit: '50' }).then(function(resp) {
+        return AstrBotPluginPage.apiGet('/judgments', { limit: '200' }).then(function(resp) {
             if (!resp || !resp.judgments) {
                 allItems = [];
             } else {
                 allItems = resp.judgments;
             }
+            selectedIds = {};
+            updateSelBar();
             render(allItems);
         }).catch(function(e) {
             document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+        });
+    }
+
+    function deleteSingle(id) {
+        if (!confirm('确认删除此条判断记录？')) return;
+        AstrBotPluginPage.apiPost('/delete_judgment', { id: id }).then(function() {
+            allItems = allItems.filter(function(j) { return j.id !== id; });
+            delete selectedIds[id];
+            updateSelBar();
+            render(allItems);
+        }).catch(function(e) {
+            alert('删除失败: ' + String(e));
+        });
+    }
+
+    function deleteSelected() {
+        var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; }).map(Number);
+        if (ids.length === 0) return;
+        if (!confirm('确认删除选中的 ' + ids.length + ' 条记录？')) return;
+        AstrBotPluginPage.apiPost('/delete_judgments', { ids: ids }).then(function() {
+            allItems = allItems.filter(function(j) { return ids.indexOf(j.id) === -1; });
+            selectedIds = {};
+            updateSelBar();
+            render(allItems);
+        }).catch(function(e) {
+            alert('删除失败: ' + String(e));
+        });
+    }
+
+    function deleteChatAll() {
+        var umo = document.getElementById('chatFilter').value;
+        if (!umo) return;
+        if (!confirm('确认删除此聊天（' + umo + '）的所有数据？包括判断记录和消息记录。')) return;
+        AstrBotPluginPage.apiPost('/delete_chat', { umo: umo }).then(function() {
+            document.getElementById('chatFilter').value = '';
+            document.getElementById('btnDelChat').style.display = 'none';
+            loadJudgments();
+        }).catch(function(e) {
+            alert('删除失败: ' + String(e));
+        });
+    }
+
+    function clearAll() {
+        if (!confirm('⚠ 确认清空全部数据？此操作不可恢复！')) return;
+        if (!confirm('再次确认：将删除所有判断日志、消息记录和对话数据！')) return;
+        AstrBotPluginPage.apiPost('/clear_all', {}).then(function() {
+            allItems = [];
+            selectedIds = {};
+            updateSelBar();
+            render([]);
+            document.getElementById('chatFilter').value = '';
+            document.getElementById('btnDelChat').style.display = 'none';
+        }).catch(function(e) {
+            alert('清空失败: ' + String(e));
         });
     }
 
@@ -128,23 +246,23 @@
 
         document.getElementById('chatFilter').addEventListener('change', function() {
             var umo = this.value;
+            document.getElementById('btnDelChat').style.display = umo ? 'inline-block' : 'none';
             if (!umo) {
                 render(allItems);
                 return;
             }
-            var filtered = allItems.filter(function(j) {
-                return j.umo === umo || j.chat_id === umo;
+            AstrBotPluginPage.apiGet('/judgments', { limit: '200', umo: umo }).then(function(resp) {
+                selectedIds = {};
+                updateSelBar();
+                render(resp && resp.judgments ? resp.judgments : []);
+            }).catch(function(e) {
+                document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
             });
-            if (filtered.length === 0) {
-                AstrBotPluginPage.apiGet('/judgments', { limit: '50', umo: umo }).then(function(resp) {
-                    render(resp && resp.judgments ? resp.judgments : []);
-                }).catch(function(e) {
-                    document.getElementById('list').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
-                });
-            } else {
-                render(filtered);
-            }
         });
+
+        document.getElementById('btnDelSelected').addEventListener('click', deleteSelected);
+        document.getElementById('btnDelChat').addEventListener('click', deleteChatAll);
+        document.getElementById('btnClearAll').addEventListener('click', clearAll);
     }
 
     var tries = 0;
