@@ -20,6 +20,8 @@ class ChatHandler:
         self._conversation_buffers: dict[str, deque[tuple[datetime, str]]] = {}
         self._max_buffer_size = 50
         self._umo_meta: dict[str, dict[str, str]] = {}
+        self._last_reply_time: dict[str, datetime] = {}
+        self._reply_count: dict[str, int] = {}
 
     def _get_umo(self, event: AstrMessageEvent) -> str:
         return event.unified_msg_origin
@@ -34,6 +36,26 @@ class ChatHandler:
         if umo not in self._umo_meta:
             self._umo_meta[umo] = {"chat_type": chat_type, "chat_id": chat_id}
         return chat_type, chat_id
+
+    def _compute_cooldown_deduction(self, umo: str) -> float:
+        enabled = self._config.get("cooldown_enabled", True)
+        if not enabled:
+            return 0.0
+
+        last_time = self._last_reply_time.get(umo)
+        if last_time is None:
+            return 0.0
+
+        cooldown_secs = int(self._config.get("cooldown_seconds", 120))
+        elapsed = (datetime.now() - last_time).total_seconds()
+        if elapsed >= cooldown_secs:
+            self._last_reply_time.pop(umo, None)
+            self._reply_count.pop(umo, None)
+            return 0.0
+
+        base = float(self._config.get("cooldown_deduction", 0.20))
+        decay = 1.0 - (elapsed / cooldown_secs)
+        return round(base * decay, 4)
 
     def _get_buffer(self, umo: str) -> deque[tuple[datetime, str]]:
         if umo not in self._conversation_buffers:
@@ -132,8 +154,10 @@ class ChatHandler:
             event: 消息事件。
         """
         if event.get_self_id() == event.get_sender_id():
+        bot_name = self._resolve_bot_name(event)
             return
 
+        bot_name = self._resolve_bot_name(event)
         outline = event.get_message_outline()
         sender_name = event.get_sender_name() or "未知用户"
         umo = self._get_umo(event)
@@ -147,7 +171,8 @@ class ChatHandler:
             try:
                 chat_type, chat_id = self._get_chat_info(event)
                 self._db.add_message(umo, "user", event.get_message_str(),
-                                     chat_type=chat_type, chat_id=chat_id)
+                                     chat_type=chat_type, chat_id=chat_id,
+                                     sender_name=sender_name)
             except Exception as e:
                 logger.warning(f"[Volitional] 持久化用户消息失败: {e}")
 
@@ -196,6 +221,20 @@ class ChatHandler:
 
         event.set_extra("judgment_score", score)
         event.set_extra("should_reply", score.should_reply)
+
+        if not is_targeted and score.should_reply:
+            deduction = self._compute_cooldown_deduction(umo)
+            if deduction > 0:
+                original_overall = score.overall
+                score.overall = round(max(0.0, score.overall - deduction), 4)
+                threshold = self.judgment_helper.reply_threshold
+                score.should_reply = score.overall >= threshold
+                if not score.should_reply:
+                    score.reason = f"冷却扣分 {deduction:.2f}，综合分降至 {score.overall:.2f}（原 {original_overall:.2f}），未达阈值。"
+                else:
+                    score.reason += f" | 冷却扣分 {deduction:.2f}（原综合 {original_overall:.2f}）"
+                event.set_extra("judgment_score", score)
+                event.set_extra("should_reply", score.should_reply)
 
         if self._db:
             try:
@@ -246,20 +285,14 @@ class ChatHandler:
             preview = response.completion_text[:200]
             self._get_buffer(umo).append((datetime.now(), f"[机器人自己]: {preview}"))
 
+            self._last_reply_time[umo] = datetime.now()
+            self._reply_count[umo] = self._reply_count.get(umo, 0) + 1
+
             if self._db:
                 try:
                     chat_type, chat_id = self._get_chat_info(event)
                     self._db.add_message(umo, "assistant", response.completion_text,
-                                         chat_type=chat_type, chat_id=chat_id)
+                                         chat_type=chat_type, chat_id=chat_id,
+                                         sender_name="机器人")
                 except Exception as e:
                     logger.warning(f"[Volitional] 持久化助手回复失败: {e}")
-
-    # ④ 发送消息前：预留扩展
-    async def final_decorate(self, event: AstrMessageEvent):
-        """发送消息前对最终输出进行修饰。当前为预留扩展点。
-
-        Args:
-            event: 消息事件。
-        """
-        pass
-

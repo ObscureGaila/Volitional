@@ -69,6 +69,25 @@ class PluginVolitional(Star):
                 logger.error(f"[Volitional] API /chats 错误: {e}", exc_info=True)
                 return {"chats": []}
 
+        async def api_conversations():
+            try:
+                convs = db.get_conversation_list()
+                return {"conversations": convs}
+            except Exception as e:
+                logger.error(f"[Volitional] API /conversations 错误: {e}", exc_info=True)
+                return {"conversations": []}
+
+        async def api_messages_detail():
+            try:
+                conv_id = request.args.get("conv_id", "")
+                if not conv_id:
+                    return {"status": "error", "message": "缺少 conv_id"}
+                detail = db.get_messages_detail(conv_id)
+                return detail
+            except Exception as e:
+                logger.error(f"[Volitional] API /messages_detail 错误: {e}", exc_info=True)
+                return {"status": "error", "message": str(e), "messages": []}
+
         self.context.register_web_api(
             "/astrbot_plugin_volitional/judgments",
             api_judgments,
@@ -80,6 +99,18 @@ class PluginVolitional(Star):
             api_chats,
             methods=["GET"],
             desc="获取 Volitional 可筛选的聊天列表",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/conversations",
+            api_conversations,
+            methods=["GET"],
+            desc="获取 Volitional 所有对话列表",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/messages_detail",
+            api_messages_detail,
+            methods=["GET"],
+            desc="获取指定对话的消息详情",
         )
 
     # ------ 全流程接管：4 个钩子，由 ChatHandler 处理实际逻辑 ------ #

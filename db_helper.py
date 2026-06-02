@@ -41,6 +41,7 @@ class VolitionalDB:
             CREATE TABLE IF NOT EXISTS conversations (
                 conv_id TEXT PRIMARY KEY,
                 umo TEXT NOT NULL,
+                bot_name TEXT DEFAULT '',
                 title TEXT,
                 created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 updated_at TEXT DEFAULT (datetime('now', 'localtime'))
@@ -123,6 +124,10 @@ class VolitionalDB:
             c.execute("ALTER TABLE messages ADD COLUMN chat_id TEXT DEFAULT ''")
         except Exception:
             pass
+        try:
+            c.execute("ALTER TABLE messages ADD COLUMN sender_name TEXT DEFAULT ''")
+        except Exception:
+            pass
         self._ensure_conn().commit()
 
     @staticmethod
@@ -163,6 +168,7 @@ class VolitionalDB:
         name: str | None = None,
         chat_type: str = "",
         chat_id: str = "",
+        sender_name: str = "",
     ):
         c = self._cursor()
         exists = c.execute(
@@ -181,11 +187,11 @@ class VolitionalDB:
             seq = max_seq + 1
 
         c.execute(
-            """INSERT INTO messages (conv_id, seq, role, content, tool_calls, tool_call_id, name, chat_type, chat_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO messages (conv_id, seq, role, content, tool_calls, tool_call_id, name, chat_type, chat_id, sender_name)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (conv_id, seq, role, content,
              json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
-             tool_call_id, name, chat_type, chat_id),
+             tool_call_id, name, chat_type, chat_id, sender_name),
         )
         self._ensure_conn().execute(
             "UPDATE conversations SET updated_at = datetime('now', 'localtime') "
@@ -198,7 +204,7 @@ class VolitionalDB:
         c = self._cursor()
         if limit:
             rows = c.execute(
-                """SELECT role, content, tool_calls, tool_call_id, name, created_at
+                """SELECT role, content, tool_calls, tool_call_id, name, created_at, sender_name
                    FROM messages WHERE conv_id = ?
                    ORDER BY seq DESC LIMIT ?""",
                 (conv_id, limit),
@@ -206,14 +212,14 @@ class VolitionalDB:
             rows = list(reversed(rows))
         else:
             rows = c.execute(
-                """SELECT role, content, tool_calls, tool_call_id, name, created_at
+                """SELECT role, content, tool_calls, tool_call_id, name, created_at, sender_name
                    FROM messages WHERE conv_id = ?
                    ORDER BY seq""",
                 (conv_id,),
             ).fetchall()
         result = []
         for r in rows:
-            msg = {"role": r[0], "content": r[1], "time": r[5]}
+            msg = {"role": r[0], "content": r[1], "time": r[5], "sender_name": r[6] or ""}
             if r[2]:
                 msg["tool_calls"] = json.loads(r[2])
             if r[3]:
@@ -222,6 +228,58 @@ class VolitionalDB:
                 msg["name"] = r[4]
             result.append(msg)
         return result
+
+    def get_conversation_list(self) -> list[dict]:
+        c = self._cursor()
+        rows = c.execute(
+            """SELECT c.conv_id, c.umo, c.created_at, c.updated_at,
+                      COALESCE(m.chat_type, '') as chat_type,
+                      COALESCE(m.chat_id, '') as chat_id,
+                      (SELECT COUNT(*) FROM messages WHERE conv_id = c.conv_id) as msg_count
+               FROM conversations c
+               LEFT JOIN (
+                   SELECT DISTINCT conv_id, chat_type, chat_id FROM messages
+                   WHERE chat_type != ''
+               ) m ON m.conv_id = c.conv_id
+               ORDER BY c.updated_at DESC"""
+        ).fetchall()
+        return [
+            {
+                "conv_id": r[0], "umo": r[1],
+                "created_at": r[2], "updated_at": r[3],
+                "chat_type": r[4] or "其他", "chat_id": r[5] or r[0],
+                "msg_count": r[6],
+            }
+            for r in rows
+        ]
+
+    def get_messages_detail(self, conv_id: str) -> dict:
+        c = self._cursor()
+        conv = c.execute(
+            "SELECT conv_id, umo, created_at FROM conversations WHERE conv_id = ?",
+            (conv_id,),
+        ).fetchone()
+        if not conv:
+            return {"conv_id": conv_id, "chat_type": "未知", "chat_id": conv_id, "messages": []}
+
+        meta = {"chat_type": "其他", "chat_id": conv[0]}
+        meta_row = c.execute(
+            "SELECT chat_type, chat_id FROM messages WHERE conv_id = ? AND chat_type != '' LIMIT 1",
+            (conv_id,),
+        ).fetchone()
+        if meta_row:
+            meta["chat_type"] = meta_row[0]
+            meta["chat_id"] = meta_row[1]
+
+        msgs = self.get_messages(conv_id)
+        return {
+            "conv_id": conv[0],
+            "umo": conv[1],
+            "created_at": conv[2],
+            "chat_type": meta["chat_type"],
+            "chat_id": meta["chat_id"],
+            "messages": msgs,
+        }
 
     def get_messages_as_openai_json(self, conv_id: str) -> str:
         return json.dumps(self.get_messages(conv_id), ensure_ascii=False)

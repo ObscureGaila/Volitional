@@ -22,7 +22,7 @@
         "description": "回复阈值",
         "type": "float",
         "hint": "综合得分需 >= 此值才建议回复",
-        "default": 0.55,
+        "default": 0.73,
         "slider": {"min": 0, "max": 1, "step": 0.05}
     },
     "weights": {
@@ -34,7 +34,7 @@
                 "description": "关联度权重",
                 "type": "float",
                 "hint": "消息与机器人/话题的关联程度",
-                "default": 0.25,
+                "default": 0.20,
                 "slider": {"min": 0, "max": 1, "step": 0.05}
             },
             "replyability": {
@@ -48,7 +48,7 @@
                 "description": "语境完整度权重",
                 "type": "float",
                 "hint": "上下文是否足够支撑有意义的回复",
-                "default": 0.15,
+                "default": 0.10,
                 "slider": {"min": 0, "max": 1, "step": 0.05}
             },
             "emotional_suitability": {
@@ -76,10 +76,30 @@
                 "description": "介入自然度权重",
                 "type": "float",
                 "hint": "此时介入是否自然不突兀",
-                "default": 0.05,
+                "default": 0.15,
                 "slider": {"min": 0, "max": 1, "step": 0.05}
             }
         }
+    },
+    "cooldown_enabled": {
+        "description": "启用回复冷却",
+        "type": "bool",
+        "hint": "开启后，机器人回复一次后会在一定时间内降低再次回复的概率",
+        "default": true
+    },
+    "cooldown_seconds": {
+        "description": "冷却时长（秒）",
+        "type": "int",
+        "hint": "回复后的冷却周期，在此期间扣分逐渐衰减至零",
+        "default": 120,
+        "slider": {"min": 5, "max": 3600, "step": 5}
+    },
+    "cooldown_deduction": {
+        "description": "冷却扣分",
+        "type": "float",
+        "hint": "刚回复完时的最大扣分值，随时间线性衰减",
+        "default": 0.20,
+        "slider": {"min": 0, "max": 0.5, "step": 0.05}
     },
     "poll_interval": {
         "description": "主动获取最新消息间隔",

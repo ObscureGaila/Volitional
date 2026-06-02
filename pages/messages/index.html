@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volitional - 聊天记录</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+        .header { padding: 16px 24px 12px; border-bottom: 1px solid #0f3460; display: flex; align-items: center; gap: 12px; }
+        .header h1 { font-size: 18px; }
+        .header .meta { color: #888; font-size: 12px; }
+        .back-btn { background: #0f3460; color: #eee; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .back-btn:hover { background: #1a4a7a; }
+        .content { flex: 1; overflow-y: auto; padding: 16px 24px; }
+        .list-group { margin-bottom: 20px; }
+        .list-group-title { font-size: 12px; color: #888; margin-bottom: 8px; padding-left: 4px; }
+        .conv-card { background: #16213e; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; border-left: 4px solid #0f3460; transition: border-color .2s; }
+        .conv-card:hover { border-left-color: #00b894; }
+        .conv-card .conv-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .conv-card .conv-title { font-size: 14px; font-weight: 600; }
+        .conv-card .conv-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-right: 6px; }
+        .badge-group { background: #0984e333; color: #74b9ff; }
+        .badge-private { background: #6c5ce733; color: #a29bfe; }
+        .conv-card .conv-sub { font-size: 12px; color: #888; }
+        .conv-card .count { font-size: 11px; color: #636e72; }
+        .empty { text-align: center; color: #636e72; padding: 40px; }
+        .error { color: #e17055; text-align: center; padding: 20px; }
+
+        .msg-list { display: flex; flex-direction: column; gap: 12px; padding-bottom: 80px; }
+        .msg-item { display: flex; flex-direction: column; max-width: 80%; }
+        .msg-item.user { align-self: flex-end; align-items: flex-end; }
+        .msg-item.assistant { align-self: flex-start; align-items: flex-start; }
+        .msg-sender { font-size: 11px; color: #888; margin-bottom: 2px; }
+        .msg-bubble { padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
+        .msg-item.user .msg-bubble { background: #0984e3; color: #fff; border-bottom-right-radius: 4px; }
+        .msg-item.assistant .msg-bubble { background: #2d3436; color: #dfe6e9; border-bottom-left-radius: 4px; }
+        .msg-time { font-size: 10px; color: #636e72; margin-top: 4px; }
+
+        .float-btns { position: fixed; right: 20px; bottom: 100px; display: flex; flex-direction: column; gap: 8px; z-index: 99; }
+        .float-btns button { width: 36px; height: 36px; border-radius: 50%; background: #0f3460; color: #eee; border: none; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; opacity: 0.7; }
+        .float-btns button:hover { opacity: 1; }
+        #viewDetail { display: none; }
+    </style>
+</head>
+<body>
+    <div class="header" id="viewList">
+        <h1>💬 聊天记录</h1>
+        <span class="meta" id="listMeta">加载中...</span>
+    </div>
+    <div class="header" id="viewDetail">
+        <button class="back-btn" id="btnBack">← 返回</button>
+        <div>
+            <h1 id="detailTitle">聊天详情</h1>
+            <span class="meta" id="detailMeta"></span>
+        </div>
+    </div>
+    <div class="content" id="contentView"></div>
+    <div class="float-btns" id="floatBtns" style="display:none;">
+        <button id="btnTop" title="跳到最上方">↑</button>
+        <button id="btnBottom" title="跳到最下方">↓</button>
+    </div>
+</body>
+<script>
+(function() {
+    function esc(s) {
+        if (!s) return '';
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function showList() {
+        document.getElementById('viewList').style.display = 'flex';
+        document.getElementById('viewDetail').style.display = 'none';
+        document.getElementById('floatBtns').style.display = 'none';
+        window.location.hash = 'list';
+    }
+
+    function showDetail(convId) {
+        document.getElementById('viewList').style.display = 'none';
+        document.getElementById('viewDetail').style.display = 'flex';
+        document.getElementById('floatBtns').style.display = 'flex';
+        window.location.hash = 'detail=' + encodeURIComponent(convId);
+        loadDetail(convId);
+    }
+
+    function formatTime(t) {
+        if (!t) return '';
+        if (t.length === 19) return t.substring(5, 16).replace('T', ' ');
+        return t;
+    }
+
+    function renderList(convs) {
+        document.getElementById('listMeta').textContent = '共 ' + convs.length + ' 个对话';
+        var html = '';
+        var currentType = '';
+        convs.forEach(function(c) {
+            var typeLabel = c.chat_type === '群聊' ? '群聊' : (c.chat_type === '私聊' ? '私聊' : '其他');
+            var badgeCls = c.chat_type === '群聊' ? 'badge-group' : (c.chat_type === '私聊' ? 'badge-private' : '');
+            if (typeLabel !== currentType) {
+                currentType = typeLabel;
+                html += '<div class="list-group-title">' + esc(typeLabel) + '</div>';
+            }
+            html += '<div class="conv-card" data-conv="' + esc(c.conv_id) + '">' +
+                '<div class="conv-header">' +
+                    '<span class="conv-title">' +
+                        '<span class="conv-badge ' + badgeCls + '">' + typeLabel + '</span>' +
+                        esc(c.chat_id) +
+                    '</span>' +
+                    '<span class="count">' + c.msg_count + ' 条消息</span>' +
+                '</div>' +
+                '<div class="conv-sub">更新于 ' + esc(formatTime(c.updated_at)) + '</div>' +
+            '</div>';
+        });
+        document.getElementById('contentView').innerHTML = html || '<div class="empty">暂无对话记录</div>';
+
+        document.querySelectorAll('.conv-card').forEach(function(card) {
+            card.addEventListener('click', function() {
+                showDetail(this.getAttribute('data-conv'));
+            });
+        });
+    }
+
+    function renderDetail(data) {
+        var chatTypeBadge = '';
+        if (data.chat_type === '群聊') {
+            chatTypeBadge = '<span class="conv-badge badge-group">群聊</span>';
+        } else if (data.chat_type === '私聊') {
+            chatTypeBadge = '<span class="conv-badge badge-private">私聊</span>';
+        }
+        document.getElementById('detailTitle').innerHTML = chatTypeBadge + esc(data.chat_id);
+        document.getElementById('detailMeta').textContent = '共 ' + data.messages.length + ' 条消息';
+
+        var html = '<div class="msg-list">';
+        data.messages.forEach(function(m) {
+            var roleCls = m.role === 'assistant' ? 'assistant' : 'user';
+            var displayName = m.sender_name || (m.role === 'assistant' ? '机器人' : '用户');
+            html += '<div class="msg-item ' + roleCls + '">' +
+                '<span class="msg-sender">' + esc(displayName) + '</span>' +
+                '<div class="msg-bubble">' + esc(m.content) + '</div>' +
+                '<span class="msg-time">' + esc(formatTime(m.time)) + '</span>' +
+            '</div>';
+        });
+        html += '</div>';
+        document.getElementById('contentView').innerHTML = html;
+
+        scrollToBottom();
+    }
+
+    function scrollToTop() {
+        document.getElementById('contentView').scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function scrollToBottom() {
+        var el = document.getElementById('contentView');
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    }
+
+    function loadList() {
+        document.getElementById('listMeta').textContent = '加载中...';
+        AstrBotPluginPage.apiGet('/conversations').then(function(resp) {
+            if (!resp || !resp.conversations) {
+                document.getElementById('contentView').innerHTML = '<div class="empty">暂无对话记录</div>';
+                document.getElementById('listMeta').textContent = '';
+                return;
+            }
+            renderList(resp.conversations);
+        }).catch(function(e) {
+            document.getElementById('contentView').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+        });
+    }
+
+    function loadDetail(convId) {
+        document.getElementById('contentView').innerHTML = '<div class="empty">加载中...</div>';
+        AstrBotPluginPage.apiGet('/messages_detail', { conv_id: convId }).then(function(resp) {
+            if (!resp || !resp.messages || resp.messages.length === 0) {
+                document.getElementById('contentView').innerHTML = '<div class="empty">暂无消息</div>';
+                return;
+            }
+            renderDetail(resp);
+        }).catch(function(e) {
+            document.getElementById('contentView').innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
+        });
+    }
+
+    function main() {
+        document.getElementById('btnBack').addEventListener('click', showList);
+        document.getElementById('btnTop').addEventListener('click', scrollToTop);
+        document.getElementById('btnBottom').addEventListener('click', scrollToBottom);
+
+        var hash = window.location.hash || '#list';
+        if (hash.indexOf('detail=') === 0) {
+            var convId = decodeURIComponent(hash.substring(7));
+            if (convId) {
+                showDetail(convId);
+                return;
+            }
+        }
+        showList();
+        loadList();
+
+        window.addEventListener('hashchange', function() {
+            var h = window.location.hash || '#list';
+            if (h.indexOf('detail=') === 0) {
+                var cid = decodeURIComponent(h.substring(7));
+                if (cid) { showDetail(cid); return; }
+            }
+            showList();
+            loadList();
+        });
+    }
+
+    var tries = 0;
+    var timer = setInterval(function() {
+        tries++;
+        if (window.AstrBotPluginPage) {
+            clearInterval(timer);
+            main();
+        } else if (tries > 80) {
+            clearInterval(timer);
+            document.getElementById('contentView').innerHTML =
+                '<div class="error">SDK 加载超时，请刷新重试</div>';
+        }
+    }, 100);
+})();
+</script>
+</html>

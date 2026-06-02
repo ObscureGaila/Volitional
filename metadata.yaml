@@ -7,3 +7,5 @@ repo: https://github.com/ObscureGaila/Volitional # 插件的仓库地址
 pages:
   - name: dashboard
     title: 判断日志
+  - name: messages
+    title: 聊天记录
