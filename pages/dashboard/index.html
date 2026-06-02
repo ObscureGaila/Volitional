@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volitional - 判断日志</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
+        h1 { font-size: 20px; margin-bottom: 8px; }
+        .sub { color: #888; font-size: 13px; margin-bottom: 20px; }
+        .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; }
+        .card.replied { border-left-color: #00b894; }
+        .card.skipped { border-left-color: #636e72; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .sender { font-weight: 600; font-size: 14px; }
+        .time { color: #888; font-size: 12px; }
+        .score { font-size: 13px; color: #fdcb6e; }
+        .score .val { font-size: 16px; font-weight: 700; }
+        .msg { font-size: 13px; color: #b2bec3; margin: 6px 0; }
+        .reason { font-size: 12px; color: #888; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge-reply { background: #00b89433; color: #00b894; }
+        .badge-skip { background: #636e7233; color: #636e72; }
+        .empty { text-align: center; color: #636e72; padding: 40px; }
+        .error { color: #e17055; text-align: center; padding: 20px; }
+        .loading { text-align: center; color: #888; padding: 40px; }
+    </style>
+</head>
+<body>
+    <h1>📊 Volitional 判断日志</h1>
+    <p class="sub" id="subtitle">加载中...</p>
+    <div id="list"></div>
+
+    <script>
+        (async () => {
+            const list = document.getElementById('list');
+            const subtitle = document.getElementById('subtitle');
+
+            try {
+                await AstrBotPluginPage.ready();
+                const ctx = AstrBotPluginPage.getContext();
+                subtitle.textContent = `插件: ${ctx.plugin_name} / 页面: ${ctx.page_name}`;
+
+                const resp = await AstrBotPluginPage.apiGet(
+                    '/api/plugin/volitional/judgments?limit=50'
+                );
+
+                if (!resp || !resp.judgments || resp.judgments.length === 0) {
+                    list.innerHTML = '<div class="empty">暂无判断记录</div>';
+                    return;
+                }
+
+                const items = resp.judgments;
+                subtitle.textContent = `共 ${items.length} 条判断记录`;
+                list.innerHTML = items.map(j => {
+                    const cls = j.should_reply ? 'replied' : 'skipped';
+                    const badge = j.should_reply
+                        ? '<span class="badge badge-reply">已回复</span>'
+                        : '<span class="badge badge-skip">跳过</span>';
+                    return `
+                        <div class="card ${cls}">
+                            <div class="card-header">
+                                <span class="sender">${esc(j.sender)} ${badge}</span>
+                                <span class="time">${esc(j.time)}</span>
+                            </div>
+                            <div class="msg">${esc(j.message)}</div>
+                            <div class="score">综合 <span class="val">${(j.overall * 100).toFixed(0)}</span> / 100 &nbsp; 关联 ${(j.relevance * 100).toFixed(0)} &nbsp; 可回 ${(j.replyability * 100).toFixed(0)}</div>
+                            <div class="reason">${esc(j.reason)}</div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) {
+                list.innerHTML = `<div class="error">加载失败: ${esc(String(e))}</div>`;
+                console.error(e);
+            }
+        })();
+
+        function esc(s) {
+            if (!s) return '';
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+    </script>
+</body>
+</html>
