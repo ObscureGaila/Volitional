@@ -33,7 +33,26 @@
     <div id="list"></div>
 
     <script>
-        (async () => {
+        function esc(s) {
+            if (!s) return '';
+            var d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function waitForSDK(cb, retries) {
+            retries = retries || 50;
+            if (window.AstrBotPluginPage) {
+                cb();
+            } else if (retries > 0) {
+                setTimeout(function() { waitForSDK(cb, retries - 1); }, 100);
+            } else {
+                document.getElementById('list').innerHTML =
+                    '<div class="error">SDK 加载超时，请刷新重试</div>';
+            }
+        }
+
+        waitForSDK(async function() {
             var list = document.getElementById('list');
             var subtitle = document.getElementById('subtitle');
 
@@ -71,14 +90,7 @@
             } catch (e) {
                 list.innerHTML = '<div class="error">加载失败: ' + esc(String(e)) + '</div>';
             }
-        })();
-
-        function esc(s) {
-            if (!s) return '';
-            var d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
-        }
+        });
     </script>
 </body>
 </html>
