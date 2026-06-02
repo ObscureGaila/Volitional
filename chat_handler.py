@@ -1,7 +1,8 @@
 from collections import deque
 from datetime import datetime
 
-from astrbot.api.event import AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, MessageChain
+from astrbot.api.message_components import Plain
 from astrbot.api.provider import ProviderRequest, LLMResponse
 from astrbot.api import logger, AstrBotConfig
 
@@ -11,9 +12,23 @@ from .db_helper import VolitionalDB
 
 
 class ChatHandler:
+    """全权接管聊天信息：拦截消息 → 判断是否回复 → 注入上下文 → 修改输出。
+
+    通过 AstrBot 生命周期的钩子实现对消息的全流程控制：
+    - event_message_type(ALL): 记录消息到缓冲区 + 显式发起 LLM 请求
+    - on_llm_request: 运行辅助模型判断，决定是否回复，同时注入上下文
+    - on_llm_response: 追加 Bot 回复到历史缓冲区
+    - on_decorating_result: 发送前的最终修饰（预留扩展）
+    """
 
     def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig, db: VolitionalDB | None = None):
+        """初始化聊天处理器。
 
+        Args:
+            judgment_helper: JudgmentHelper 单例，用于调用辅助模型进行回复判断。
+            config: 插件配置对象。
+            db: VolitionalDB 实例，用于持久化消息和判断日志。
+        """
         self.judgment_helper = judgment_helper
         self._config = config
         self._db = db
@@ -24,9 +39,25 @@ class ChatHandler:
         self._reply_count: dict[str, int] = {}
 
     def _get_umo(self, event: AstrMessageEvent) -> str:
+        """从事件中提取统一会话标识。
+
+        Args:
+            event: 消息事件。
+
+        Returns:
+            str: unified_msg_origin 字符串。
+        """
         return event.unified_msg_origin
 
     def _get_chat_info(self, event: AstrMessageEvent):
+        """从事件中提取聊天类型和标识，并缓存到 _umo_meta。
+
+        Args:
+            event: 消息事件。
+
+        Returns:
+            tuple[str, str]: (chat_type, chat_id)，如 ("群聊", "123456") 或 ("私聊", "987654")。
+        """
         umo = event.unified_msg_origin
         chat_type = "私聊"
         chat_id = event.get_sender_id()
@@ -38,6 +69,14 @@ class ChatHandler:
         return chat_type, chat_id
 
     def _compute_cooldown_deduction(self, umo: str) -> float:
+        """计算当前会话的冷却扣分值，随距上次回复的时间线性衰减。
+
+        Args:
+            umo: 统一会话标识。
+
+        Returns:
+            float: 冷却扣分值（0.0 ~ cooldown_deduction），冷却过期返回 0.0。
+        """
         enabled = self._config.get("cooldown_enabled", True)
         if not enabled:
             return 0.0
@@ -58,6 +97,14 @@ class ChatHandler:
         return round(base * decay, 4)
 
     def _get_buffer(self, umo: str) -> deque[tuple[datetime, str]]:
+        """获取指定会话的历史消息缓冲区。
+
+        Args:
+            umo: 统一会话标识。
+
+        Returns:
+            deque: 该会话的定长消息缓冲区，元素为 (时间, 消息标签) 元组。
+        """
         if umo not in self._conversation_buffers:
             self._conversation_buffers[umo] = deque(maxlen=self._max_buffer_size)
         return self._conversation_buffers[umo]
@@ -268,11 +315,11 @@ class ChatHandler:
             f"关联={score.relevance:.2f} 可回={score.replyability:.2f}"
         )
 
-        req.system_prompt += "\n普通网友闲聊，每轮回复严格控制在1-2句话，≤30个字，大白话，无修饰、无排比、不展开长篇，随口唠嗑式短句。"
+        req.system_prompt += "\n普通网友闲聊，每轮回复严格控制在1-2句话，≤30个字，大白话，无修饰、无排比、不展开长篇，随口聊天打屁式短句。\n如需发送多条短消息，以JSON数组格式输出：[{\"ind\":0,\"str\":\"第一句\"},{\"ind\":1,\"str\":\"第二句\"}]"
 
     # ③ LLM 响应后：追加 Bot 回复到历史缓冲区
     async def log_response(self, event: AstrMessageEvent, response: LLMResponse):
-        """LLM 响应后，追加 Bot 回复到历史缓冲区（标记为机器人自己）。
+        """LLM 响应后，追加 Bot 回复到历史缓冲区并解析多消息格式。
 
         Args:
             event: 消息事件。
@@ -281,20 +328,55 @@ class ChatHandler:
         score: JudgmentScore | None = event.get_extra("judgment_score")
         if score and score.should_reply:
             umo = self._get_umo(event)
-            preview = response.completion_text[:200]
+            text = response.completion_text
+            preview = text[:200]
             self._get_buffer(umo).append((datetime.now(), f"[机器人自己]: {preview}"))
 
             self._last_reply_time[umo] = datetime.now()
             self._reply_count[umo] = self._reply_count.get(umo, 0) + 1
 
+            messages = self._parse_multi_message(text)
+            event.set_extra("volitional_messages", messages)
+
             if self._db:
                 try:
                     chat_type, chat_id = self._get_chat_info(event)
-                    self._db.add_message(umo, "assistant", response.completion_text,
+                    self._db.add_message(umo, "assistant", text,
                                          chat_type=chat_type, chat_id=chat_id,
                                          sender_name="机器人")
                 except Exception as e:
                     logger.warning(f"[Volitional] 持久化助手回复失败: {e}")
 
+    def _parse_multi_message(self, text: str) -> list[str]:
+        """解析 LLM 输出是否为多消息 JSON 数组格式。
+
+        Args:
+            text: LLM 生成的原始文本。
+
+        Returns:
+            list[str]: 若为合法 JSON 数组则返回各消息文本列表，否则返回含原文的单元素列表。
+        """
+        try:
+            import json
+            data = json.loads(text)
+            if isinstance(data, list):
+                msgs = [item.get("str", "") for item in data if isinstance(item, dict)]
+                if msgs and all(isinstance(m, str) for m in msgs):
+                    return msgs
+        except Exception:
+            pass
+        return [text]
+
     async def final_decorate(self, event: AstrMessageEvent):
-        pass
+        """发送消息前进行最终修饰。若存在多消息则拆分发送。
+
+        Args:
+            event: 消息事件。
+        """
+        messages = event.get_extra("volitional_messages")
+        if not messages or len(messages) <= 1:
+            return
+        event.stop_event()
+        for msg in messages:
+            if msg.strip():
+                await event.send(MessageChain([Plain(msg)]))
