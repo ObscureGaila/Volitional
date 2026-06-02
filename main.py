@@ -158,7 +158,10 @@ class PluginVolitional(Star):
 
     async def _periodic_loop(self):
         """后台周期轮询循环，按 poll_interval 间隔执行 _poll。"""
-        interval = int(self.config.get("poll_interval", 300))
+        try:
+            interval = int(self.config.get("poll_interval", 300))
+        except (ValueError, TypeError):
+            interval = 300
         while True:
             try:
                 await self._poll()

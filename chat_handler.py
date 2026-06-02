@@ -154,7 +154,6 @@ class ChatHandler:
             event: 消息事件。
         """
         if event.get_self_id() == event.get_sender_id():
-        bot_name = self._resolve_bot_name(event)
             return
 
         bot_name = self._resolve_bot_name(event)
@@ -296,3 +295,6 @@ class ChatHandler:
                                          sender_name="机器人")
                 except Exception as e:
                     logger.warning(f"[Volitional] 持久化助手回复失败: {e}")
+
+    async def final_decorate(self, event: AstrMessageEvent):
+        pass
