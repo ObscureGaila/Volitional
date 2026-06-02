@@ -56,6 +56,7 @@
         </select>
         <button class="danger" id="btnDelChat" style="display:none;">删除此聊天全部数据</button>
         <button class="danger" id="btnClearAll">清空全部数据</button>
+        <button id="btnTest" style="background:#e17055;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer;">TEST</button>
     </div>
     <div class="sel-bar" id="selBar">
         <span id="selCount">已选 0 条</span>
@@ -232,7 +233,6 @@
     }
 
     function deleteSingle(id) {
-        if (!confirm('确认删除此条判断记录？')) return;
         AstrBotPluginPage.apiGet('/delete_judgment', { id: id }).then(function() {
             allItems = allItems.filter(function(j) { return j.id !== id; });
             delete selectedIds[id];
@@ -308,6 +308,7 @@
         document.getElementById('btnDelSelected').addEventListener('click', deleteSelected);
         document.getElementById('btnDelChat').addEventListener('click', deleteChatAll);
         document.getElementById('btnClearAll').addEventListener('click', clearAll);
+        document.getElementById('btnTest').addEventListener('click', function() { alert('BTN CLICK OK'); });
 
         loadChats().then(function() { loadJudgments(); });
     }
