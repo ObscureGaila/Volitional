@@ -376,6 +376,8 @@ class ChatHandler:
         messages = event.get_extra("volitional_messages")
         if not messages or len(messages) <= 1:
             return
+        result = event.get_result()
+        result.chain = []
         event.stop_event()
         for msg in messages:
             if msg.strip():
