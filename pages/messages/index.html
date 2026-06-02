@@ -74,14 +74,12 @@
         document.getElementById('viewList').style.display = 'flex';
         document.getElementById('viewDetail').style.display = 'none';
         document.getElementById('floatBtns').style.display = 'none';
-        window.location.hash = 'list';
     }
 
     function showDetail(convId) {
         document.getElementById('viewList').style.display = 'none';
         document.getElementById('viewDetail').style.display = 'flex';
         document.getElementById('floatBtns').style.display = 'flex';
-        window.location.hash = 'detail=' + encodeURIComponent(convId);
         loadDetail(convId);
     }
 
@@ -186,29 +184,12 @@
 
     function main() {
         document.getElementById('btnBack').addEventListener('click', showList);
+        document.getElementById('btnBack').addEventListener('click', loadList);
         document.getElementById('btnTop').addEventListener('click', scrollToTop);
         document.getElementById('btnBottom').addEventListener('click', scrollToBottom);
 
-        var hash = window.location.hash || '#list';
-        if (hash.indexOf('detail=') === 0) {
-            var convId = decodeURIComponent(hash.substring(7));
-            if (convId) {
-                showDetail(convId);
-                return;
-            }
-        }
         showList();
         loadList();
-
-        window.addEventListener('hashchange', function() {
-            var h = window.location.hash || '#list';
-            if (h.indexOf('detail=') === 0) {
-                var cid = decodeURIComponent(h.substring(7));
-                if (cid) { showDetail(cid); return; }
-            }
-            showList();
-            loadList();
-        });
     }
 
     var tries = 0;
