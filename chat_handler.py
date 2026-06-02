@@ -368,7 +368,7 @@ class ChatHandler:
         return [text]
 
     async def final_decorate(self, event: AstrMessageEvent):
-        """发送消息前进行最终修饰。若存在多消息则拆分发送。
+        """发送消息前进行最终修饰。若存在多消息则清空原链，由 Agent 工具负责发送。
 
         Args:
             event: 消息事件。
@@ -379,6 +379,3 @@ class ChatHandler:
         result = event.get_result()
         result.chain = []
         event.stop_event()
-        for msg in messages:
-            if msg.strip():
-                await event.send(MessageChain([Plain(msg)]))
