@@ -36,7 +36,7 @@
             a.href = '../' + page + '/index.html';
             a.addEventListener('click', function(e) {
                 e.preventDefault();
-                window.location.href = this.href;
+                window.parent.location.href = '/plugin/astrbot_plugin_volitional/' + page;
             });
 
             var iconDiv = document.createElement('div');
