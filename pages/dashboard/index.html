@@ -21,19 +21,19 @@
         .sel-bar span { font-size: 13px; color: #74b9ff; }
         .sel-bar button { background: #0f3460; color: #eee; border: none; border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
         .sel-bar button:hover { background: #1a4a7a; }
-        .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; position: relative; }
+        .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #0f3460; position: relative; padding-left: 40px; }
         .card.replied { border-left-color: #00b894; }
         .card.skipped { border-left-color: #636e72; }
         .card.selected { background: #1a3a5c; }
-        .card .card-cb { position: absolute; left: -28px; top: 16px; accent-color: #0984e3; }
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px; }
-        .card-header .left { display: flex; align-items: center; gap: 8px; }
+        .card .card-cb { position: absolute; left: 10px; top: 16px; accent-color: #0984e3; cursor: pointer; }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; flex-wrap: wrap; gap: 4px; }
+        .sender-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .sender { font-weight: 600; font-size: 14px; }
         .chat-info { font-size: 11px; color: #888; }
         .chat-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-right: 4px; }
         .chat-group { background: #0984e333; color: #74b9ff; }
         .chat-private { background: #6c5ce733; color: #a29bfe; }
-        .time { color: #888; font-size: 12px; }
+        .time { color: #888; font-size: 12px; margin-left: auto; }
         .score { font-size: 13px; color: #fdcb6e; }
         .score .val { font-size: 16px; font-weight: 700; }
         .msg { font-size: 13px; color: #b2bec3; margin: 6px 0; }
@@ -41,7 +41,7 @@
         .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
         .badge-reply { background: #00b89433; color: #00b894; }
         .badge-skip { background: #636e7233; color: #636e72; }
-        .btn-del-one { background: none; border: none; color: #636e72; cursor: pointer; font-size: 14px; padding: 2px 6px; }
+        .btn-del-one { background: none; border: none; color: #636e72; cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1; }
         .btn-del-one:hover { color: #e17055; }
         .empty { text-align: center; color: #636e72; padding: 40px; }
         .error { color: #e17055; text-align: center; padding: 20px; }
@@ -87,11 +87,98 @@
         }
     }
 
-    function toggleSelect(id) {
-        selectedIds[id] = !selectedIds[id];
+    function toggleSelect(jid) {
+        selectedIds[jid] = !selectedIds[jid];
         updateSelBar();
-        var card = document.querySelector('.card[data-jid="' + id + '"]');
-        if (card) card.classList.toggle('selected', selectedIds[id]);
+        var card = document.querySelector('#card_' + jid);
+        if (card) card.classList.toggle('selected', !!selectedIds[jid]);
+    }
+
+    function buildCard(j) {
+        var card = document.createElement('div');
+        card.id = 'card_' + j.id;
+        card.className = 'card ' + (j.should_reply ? 'replied' : 'skipped');
+
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'card-cb';
+        cb.addEventListener('click', function(e) {
+            e.stopPropagation();
+            toggleSelect(j.id);
+            this.checked = !!selectedIds[j.id];
+        });
+        card.appendChild(cb);
+
+        var header = document.createElement('div');
+        header.className = 'card-header';
+
+        var senderLine = document.createElement('div');
+        senderLine.className = 'sender-line';
+
+        var senderSpan = document.createElement('span');
+        senderSpan.className = 'sender';
+        senderSpan.textContent = j.sender || '未知用户';
+        senderLine.appendChild(senderSpan);
+
+        var badgeSpan = document.createElement('span');
+        badgeSpan.className = 'badge ' + (j.should_reply ? 'badge-reply' : 'badge-skip');
+        badgeSpan.textContent = j.should_reply ? '已回复' : '跳过';
+        senderLine.appendChild(badgeSpan);
+
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn-del-one';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            deleteSingle(j.id);
+        });
+        senderLine.appendChild(delBtn);
+
+        header.appendChild(senderLine);
+
+        var timeSpan = document.createElement('span');
+        timeSpan.className = 'time';
+        timeSpan.textContent = j.time || '';
+        header.appendChild(timeSpan);
+
+        card.appendChild(header);
+
+        if (j.chat_id) {
+            var chatDiv = document.createElement('div');
+            if (j.chat_type === '群聊') {
+                var gb = document.createElement('span');
+                gb.className = 'chat-badge chat-group';
+                gb.textContent = '群聊';
+                chatDiv.appendChild(gb);
+            } else if (j.chat_type === '私聊') {
+                var pb = document.createElement('span');
+                pb.className = 'chat-badge chat-private';
+                pb.textContent = '私聊';
+                chatDiv.appendChild(pb);
+            }
+            var ci = document.createElement('span');
+            ci.className = 'chat-info';
+            ci.textContent = j.chat_id;
+            chatDiv.appendChild(ci);
+            card.appendChild(chatDiv);
+        }
+
+        var msgDiv = document.createElement('div');
+        msgDiv.className = 'msg';
+        msgDiv.textContent = j.message || '';
+        card.appendChild(msgDiv);
+
+        var scoreDiv = document.createElement('div');
+        scoreDiv.className = 'score';
+        scoreDiv.innerHTML = '综合 <span class="val">' + (j.overall * 100).toFixed(0) + '</span> / 100  |  关联 ' + (j.relevance * 100).toFixed(0) + '  |  可回 ' + (j.replyability * 100).toFixed(0);
+        card.appendChild(scoreDiv);
+
+        var reasonDiv = document.createElement('div');
+        reasonDiv.className = 'reason';
+        reasonDiv.textContent = j.reason || '';
+        card.appendChild(reasonDiv);
+
+        return card;
     }
 
     function render(items) {
@@ -104,68 +191,11 @@
         }
         subtitle.textContent = '共 ' + items.length + ' 条记录';
 
-        var frag = document.createDocumentFragment();
+        while (list.firstChild) {
+            list.removeChild(list.firstChild);
+        }
         items.forEach(function(j) {
-            var card = document.createElement('div');
-            var cls = j.should_reply ? 'replied' : 'skipped';
-            card.className = 'card ' + cls + (selectedIds[j.id] ? ' selected' : '');
-            card.setAttribute('data-jid', String(j.id));
-
-            var badge = j.should_reply
-                ? '<span class="badge badge-reply">已回复</span>'
-                : '<span class="badge badge-skip">跳过</span>';
-            var chatTypeBadge = '';
-            if (j.chat_type === '群聊') {
-                chatTypeBadge = '<span class="chat-badge chat-group">群聊</span>';
-            } else if (j.chat_type === '私聊') {
-                chatTypeBadge = '<span class="chat-badge chat-private">私聊</span>';
-            }
-            var chatIdDisplay = j.chat_id ? '<span class="chat-info">' + chatTypeBadge + esc(j.chat_id) + '</span>' : '';
-
-            card.innerHTML =
-                '<input type="checkbox" class="card-cb"' + (selectedIds[j.id] ? ' checked' : '') + '>' +
-                '<div class="card-header">' +
-                    '<div class="left">' +
-                        '<span class="sender">' + esc(j.sender) + ' ' + badge + '</span>' +
-                        '<button class="btn-del-one">✕</button>' +
-                    '</div>' +
-                    '<span class="time">' + esc(j.time) + '</span>' +
-                '</div>' +
-                '<div>' + chatIdDisplay + '</div>' +
-                '<div class="msg">' + esc(j.message) + '</div>' +
-                '<div class="score">综合 <span class="val">' + (j.overall * 100).toFixed(0) + '</span> / 100  |  关联 ' + (j.relevance * 100).toFixed(0) + '  |  可回 ' + (j.replyability * 100).toFixed(0) + '</div>' +
-                '<div class="reason">' + esc(j.reason) + '</div>';
-
-            frag.appendChild(card);
-        });
-
-        list.innerHTML = '';
-        list.appendChild(frag);
-
-        bindCardEvents();
-    }
-
-    function bindCardEvents() {
-        var cards = document.querySelectorAll('#list .card');
-        cards.forEach(function(card) {
-            var jid = parseInt(card.getAttribute('data-jid'));
-
-            var cb = card.querySelector('.card-cb');
-            if (cb) {
-                cb.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    toggleSelect(jid);
-                    cb.checked = !!selectedIds[jid];
-                });
-            }
-
-            var btn = card.querySelector('.btn-del-one');
-            if (btn) {
-                btn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    deleteSingle(jid);
-                });
-            }
+            list.appendChild(buildCard(j));
         });
     }
 
@@ -230,7 +260,7 @@
     function deleteChatAll() {
         var umo = document.getElementById('chatFilter').value;
         if (!umo) return;
-        if (!confirm('确认删除此聊天的所有数据？包括判断记录和消息记录。')) return;
+        if (!confirm('确认删除此聊天的所有数据？')) return;
         AstrBotPluginPage.apiGet('/delete_chat', { umo: umo }).then(function() {
             document.getElementById('chatFilter').value = '';
             document.getElementById('btnDelChat').style.display = 'none';
@@ -242,7 +272,7 @@
 
     function clearAll() {
         if (!confirm('确认清空全部数据？此操作不可恢复！')) return;
-        if (!confirm('再次确认：将删除所有判断日志、消息记录和对话数据！')) return;
+        if (!confirm('再次确认？')) return;
         AstrBotPluginPage.apiGet('/clear_all', {}).then(function() {
             allItems = [];
             selectedIds = {};
