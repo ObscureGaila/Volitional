@@ -22,7 +22,7 @@
         "description": "回复阈值",
         "type": "float",
         "hint": "综合得分需 >= 此值才建议回复",
-        "default": 0.73,
+        "default": 0.67,
         "slider": {"min": 0, "max": 1, "step": 0.05}
     },
     "weights": {
