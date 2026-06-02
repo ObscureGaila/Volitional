@@ -1,12 +1,13 @@
 import asyncio
 
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.provider import ProviderRequest, LLMResponse
 
 from .judgment_helper import JudgmentHelper
 from .chat_handler import ChatHandler
+from .db_helper import VolitionalDB
 
 
 @register("volitional", "boil-mushrooms", "主动判断聊天回复时机，接管全流程聊天信息", "1.0.0")
@@ -30,13 +31,54 @@ class PluginVolitional(Star):
         self.config = config
         self._task = None
         self._helper: JudgmentHelper | None = None
+        self._db: VolitionalDB | None = None
         self._chat_handler: ChatHandler | None = None
 
     async def initialize(self):
-        """插件激活时调用，初始化 JudgmentHelper、ChatHandler 和后台轮询任务。"""
+        """插件激活时调用，初始化 DB、JudgmentHelper、ChatHandler 和后台轮询任务。"""
+        data_dir = StarTools.get_data_dir()
+        self._db = VolitionalDB(data_dir)
+        self._db.init_tables()
+
         self._helper = JudgmentHelper(self.context, self.config)
-        self._chat_handler = ChatHandler(self._helper, self.config)
+        self._chat_handler = ChatHandler(self._helper, self.config, self._db)
         self._task = asyncio.create_task(self._periodic_loop())
+        self._register_web_apis()
+
+    def _register_web_apis(self):
+        """注册插件页面使用的 Web API。"""
+        db = self._db
+
+        async def api_judgments(request):
+            limit = int(request.query_params.get("limit", "50"))
+            umo = request.query_params.get("umo")
+            if umo:
+                rows = db.get_recent_judgments(umo, limit=limit)
+            else:
+                c = db._cursor()
+                rows_data = c.execute(
+                    """SELECT sender_name, message, overall, relevance, replyability,
+                              should_reply, reason, created_at
+                       FROM judgment_log
+                       ORDER BY id DESC LIMIT ?""",
+                    (limit,),
+                ).fetchall()
+                rows = [
+                    {
+                        "sender": r[0], "message": r[1], "overall": r[2],
+                        "relevance": r[3], "replyability": r[4],
+                        "should_reply": bool(r[5]), "reason": r[6], "time": r[7],
+                    }
+                    for r in rows_data
+                ]
+            return {"judgments": rows}
+
+        self.context.register_web_api(
+            "/api/plugin/volitional/judgments",
+            api_judgments,
+            methods=["GET"],
+            desc="获取 Volitional 判断日志",
+        )
 
     # ------ 全流程接管：4 个钩子，由 ChatHandler 处理实际逻辑 ------ #
 

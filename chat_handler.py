@@ -7,6 +7,7 @@ from astrbot.api import logger, AstrBotConfig
 
 from .judgment_helper import JudgmentHelper
 from .models import JudgmentScore
+from .db_helper import VolitionalDB
 
 
 class ChatHandler:
@@ -19,15 +20,17 @@ class ChatHandler:
     - on_decorating_result: 发送前的最终修饰（预留扩展）
     """
 
-    def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig):
+    def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig, db: VolitionalDB | None = None):
         """初始化聊天处理器。
 
         Args:
             judgment_helper: JudgmentHelper 单例，用于调用辅助模型进行回复判断。
             config: 插件配置对象。
+            db: VolitionalDB 实例，用于持久化消息和判断日志。
         """
         self.judgment_helper = judgment_helper
         self._config = config
+        self._db = db
         self._conversation_buffers: dict[str, deque[tuple[datetime, str]]] = {}
         self._max_buffer_size = 50
 
@@ -158,6 +161,12 @@ class ChatHandler:
         labeled = f"[{sender_name}]{extra_marker}: {outline}"
         self._get_buffer(umo).append((datetime.now(), labeled))
 
+        if self._db:
+            try:
+                self._db.add_message(umo, "user", event.get_message_str())
+            except Exception as e:
+                logger.warning(f"[Volitional] 持久化用户消息失败: {e}")
+
         if self._is_noise(outline):
             return
 
@@ -233,6 +242,12 @@ class ChatHandler:
             umo = self._get_umo(event)
             preview = response.completion_text[:200]
             self._get_buffer(umo).append((datetime.now(), f"[机器人自己]: {preview}"))
+
+            if self._db:
+                try:
+                    self._db.add_message(umo, "assistant", response.completion_text)
+                except Exception as e:
+                    logger.warning(f"[Volitional] 持久化助手回复失败: {e}")
 
     # ④ 发送消息前：预留扩展
     async def final_decorate(self, event: AstrMessageEvent):
