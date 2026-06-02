@@ -51,15 +51,15 @@
     <h1>📊 Volitional 判断日志</h1>
     <p class="sub" id="subtitle">加载中...</p>
     <div class="toolbar" id="toolbar" style="display:none;">
-        <select id="chatFilter" onchange="VolitionalDash.onFilterChange()">
+        <select id="chatFilter">
             <option value="">全部聊天</option>
         </select>
-        <button class="danger" id="btnDelChat" style="display:none;" onclick="VolitionalDash.deleteChatAll()">删除此聊天全部数据</button>
-        <button class="danger" onclick="VolitionalDash.clearAll()">清空全部数据</button>
+        <button class="danger" id="btnDelChat" style="display:none;">删除此聊天全部数据</button>
+        <button class="danger" id="btnClearAll">清空全部数据</button>
     </div>
     <div class="sel-bar" id="selBar">
         <span id="selCount">已选 0 条</span>
-        <button onclick="VolitionalDash.deleteSelected()">删除选中</button>
+        <button id="btnDelSelected">删除选中</button>
     </div>
     <div id="list"></div>
 </body>
@@ -90,7 +90,7 @@
     function toggleSelect(id) {
         selectedIds[id] = !selectedIds[id];
         updateSelBar();
-        var card = document.querySelector('.card[data-id="' + id + '"]');
+        var card = document.querySelector('.card[data-jid="' + id + '"]');
         if (card) card.classList.toggle('selected', selectedIds[id]);
     }
 
@@ -103,8 +103,14 @@
             return;
         }
         subtitle.textContent = '共 ' + items.length + ' 条记录';
-        list.innerHTML = items.map(function(j) {
+
+        var frag = document.createDocumentFragment();
+        items.forEach(function(j) {
+            var card = document.createElement('div');
             var cls = j.should_reply ? 'replied' : 'skipped';
+            card.className = 'card ' + cls + (selectedIds[j.id] ? ' selected' : '');
+            card.setAttribute('data-jid', String(j.id));
+
             var badge = j.should_reply
                 ? '<span class="badge badge-reply">已回复</span>'
                 : '<span class="badge badge-skip">跳过</span>';
@@ -115,21 +121,52 @@
                 chatTypeBadge = '<span class="chat-badge chat-private">私聊</span>';
             }
             var chatIdDisplay = j.chat_id ? '<span class="chat-info">' + chatTypeBadge + esc(j.chat_id) + '</span>' : '';
-            return '<div class="card ' + cls + (selectedIds[j.id] ? ' selected' : '') + '" data-id="' + j.id + '">' +
-                '<input type="checkbox" class="card-cb"' + (selectedIds[j.id] ? ' checked' : '') + ' onclick="VolitionalDash.toggleSelect(' + j.id + ')" title="选择">' +
+
+            card.innerHTML =
+                '<input type="checkbox" class="card-cb"' + (selectedIds[j.id] ? ' checked' : '') + '>' +
                 '<div class="card-header">' +
                     '<div class="left">' +
                         '<span class="sender">' + esc(j.sender) + ' ' + badge + '</span>' +
-                        '<button class="btn-del-one" onclick="VolitionalDash.deleteSingle(' + j.id + ')">✕</button>' +
+                        '<button class="btn-del-one">✕</button>' +
                     '</div>' +
                     '<span class="time">' + esc(j.time) + '</span>' +
                 '</div>' +
                 '<div>' + chatIdDisplay + '</div>' +
                 '<div class="msg">' + esc(j.message) + '</div>' +
                 '<div class="score">综合 <span class="val">' + (j.overall * 100).toFixed(0) + '</span> / 100  |  关联 ' + (j.relevance * 100).toFixed(0) + '  |  可回 ' + (j.replyability * 100).toFixed(0) + '</div>' +
-                '<div class="reason">' + esc(j.reason) + '</div>' +
-            '</div>';
-        }).join('');
+                '<div class="reason">' + esc(j.reason) + '</div>';
+
+            frag.appendChild(card);
+        });
+
+        list.innerHTML = '';
+        list.appendChild(frag);
+
+        bindCardEvents();
+    }
+
+    function bindCardEvents() {
+        var cards = document.querySelectorAll('#list .card');
+        cards.forEach(function(card) {
+            var jid = parseInt(card.getAttribute('data-jid'));
+
+            var cb = card.querySelector('.card-cb');
+            if (cb) {
+                cb.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    toggleSelect(jid);
+                    cb.checked = !!selectedIds[jid];
+                });
+            }
+
+            var btn = card.querySelector('.btn-del-one');
+            if (btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    deleteSingle(jid);
+                });
+            }
+        });
     }
 
     function loadChats() {
@@ -193,7 +230,7 @@
     function deleteChatAll() {
         var umo = document.getElementById('chatFilter').value;
         if (!umo) return;
-        if (!confirm('确认删除此聊天（' + umo + '）的所有数据？包括判断记录和消息记录。')) return;
+        if (!confirm('确认删除此聊天的所有数据？包括判断记录和消息记录。')) return;
         AstrBotPluginPage.apiGet('/delete_chat', { umo: umo }).then(function() {
             document.getElementById('chatFilter').value = '';
             document.getElementById('btnDelChat').style.display = 'none';
@@ -204,7 +241,7 @@
     }
 
     function clearAll() {
-        if (!confirm('⚠ 确认清空全部数据？此操作不可恢复！')) return;
+        if (!confirm('确认清空全部数据？此操作不可恢复！')) return;
         if (!confirm('再次确认：将删除所有判断日志、消息记录和对话数据！')) return;
         AstrBotPluginPage.apiGet('/clear_all', {}).then(function() {
             allItems = [];
@@ -234,17 +271,14 @@
         });
     }
 
-    window.VolitionalDash = {
-        toggleSelect: toggleSelect,
-        deleteSingle: deleteSingle,
-        deleteSelected: deleteSelected,
-        deleteChatAll: deleteChatAll,
-        clearAll: clearAll,
-        onFilterChange: onFilterChange
-    };
-
     function main() {
         document.getElementById('subtitle').textContent = '随心所动 (volitional)';
+
+        document.getElementById('chatFilter').addEventListener('change', onFilterChange);
+        document.getElementById('btnDelSelected').addEventListener('click', deleteSelected);
+        document.getElementById('btnDelChat').addEventListener('click', deleteChatAll);
+        document.getElementById('btnClearAll').addEventListener('click', clearAll);
+
         loadChats().then(function() { loadJudgments(); });
     }
 
