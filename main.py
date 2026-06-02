@@ -90,8 +90,7 @@ class PluginVolitional(Star):
 
         async def api_delete_judgment():
             try:
-                body = await request.get_json()
-                jid = int(body.get("id", 0))
+                jid = int(request.args.get("id", "0"))
                 if not jid:
                     return {"status": "error", "message": "缺少 id"}
                 db.delete_judgment(jid)
@@ -102,11 +101,11 @@ class PluginVolitional(Star):
 
         async def api_delete_judgments():
             try:
-                body = await request.get_json()
-                ids = body.get("ids", [])
-                if not ids:
+                ids_str = request.args.get("ids", "")
+                if not ids_str:
                     return {"status": "error", "message": "缺少 ids"}
-                db.delete_judgments_by_ids([int(i) for i in ids])
+                ids = [int(i) for i in ids_str.split(",") if i.strip()]
+                db.delete_judgments_by_ids(ids)
                 return {"status": "ok"}
             except Exception as e:
                 logger.error(f"[Volitional] API /delete_judgments 错误: {e}", exc_info=True)
@@ -114,8 +113,7 @@ class PluginVolitional(Star):
 
         async def api_delete_chat():
             try:
-                body = await request.get_json()
-                umo = body.get("umo", "")
+                umo = request.args.get("umo", "")
                 if not umo:
                     return {"status": "error", "message": "缺少 umo"}
                 db.delete_chat_all(umo)
@@ -159,25 +157,25 @@ class PluginVolitional(Star):
         self.context.register_web_api(
             "/astrbot_plugin_volitional/delete_judgment",
             api_delete_judgment,
-            methods=["POST"],
+            methods=["GET"],
             desc="删除单条判断记录",
         )
         self.context.register_web_api(
             "/astrbot_plugin_volitional/delete_judgments",
             api_delete_judgments,
-            methods=["POST"],
+            methods=["GET"],
             desc="批量删除判断记录",
         )
         self.context.register_web_api(
             "/astrbot_plugin_volitional/delete_chat",
             api_delete_chat,
-            methods=["POST"],
+            methods=["GET"],
             desc="删除指定聊天的所有数据",
         )
         self.context.register_web_api(
             "/astrbot_plugin_volitional/clear_all",
             api_clear_all,
-            methods=["POST"],
+            methods=["GET"],
             desc="清空全部数据",
         )
 

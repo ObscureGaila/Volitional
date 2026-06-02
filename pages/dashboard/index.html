@@ -184,7 +184,7 @@
 
     function deleteSingle(id) {
         if (!confirm('确认删除此条判断记录？')) return;
-        AstrBotPluginPage.apiPost('/delete_judgment', { id: id }).then(function() {
+        AstrBotPluginPage.apiGet('/delete_judgment', { id: id }).then(function() {
             allItems = allItems.filter(function(j) { return j.id !== id; });
             delete selectedIds[id];
             updateSelBar();
@@ -198,7 +198,7 @@
         var ids = Object.keys(selectedIds).filter(function(k) { return selectedIds[k]; }).map(Number);
         if (ids.length === 0) return;
         if (!confirm('确认删除选中的 ' + ids.length + ' 条记录？')) return;
-        AstrBotPluginPage.apiPost('/delete_judgments', { ids: ids }).then(function() {
+        AstrBotPluginPage.apiGet('/delete_judgments', { ids: ids.join(',') }).then(function() {
             allItems = allItems.filter(function(j) { return ids.indexOf(j.id) === -1; });
             selectedIds = {};
             updateSelBar();
@@ -212,7 +212,7 @@
         var umo = document.getElementById('chatFilter').value;
         if (!umo) return;
         if (!confirm('确认删除此聊天（' + umo + '）的所有数据？包括判断记录和消息记录。')) return;
-        AstrBotPluginPage.apiPost('/delete_chat', { umo: umo }).then(function() {
+        AstrBotPluginPage.apiGet('/delete_chat', { umo: umo }).then(function() {
             document.getElementById('chatFilter').value = '';
             document.getElementById('btnDelChat').style.display = 'none';
             loadJudgments();
@@ -224,7 +224,7 @@
     function clearAll() {
         if (!confirm('⚠ 确认清空全部数据？此操作不可恢复！')) return;
         if (!confirm('再次确认：将删除所有判断日志、消息记录和对话数据！')) return;
-        AstrBotPluginPage.apiPost('/clear_all', {}).then(function() {
+        AstrBotPluginPage.apiGet('/clear_all', {}).then(function() {
             allItems = [];
             selectedIds = {};
             updateSelBar();
