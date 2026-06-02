@@ -262,3 +262,4 @@ class ChatHandler:
             event: 消息事件。
         """
         pass
+

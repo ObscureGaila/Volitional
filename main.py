@@ -146,3 +146,4 @@ class PluginVolitional(Star):
             await self._helper.terminate()
         if self._db:
             self._db.close()
+

@@ -346,3 +346,4 @@ class VolitionalDB:
         c = self._cursor()
         c.execute("DELETE FROM kv_store WHERE key = ?", (key,))
         self._ensure_conn().commit()
+
