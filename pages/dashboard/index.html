@@ -48,7 +48,7 @@
             var ctx = AstrBotPluginPage.getContext();
             subtitle.textContent = '插件: ' + ctx.plugin_name;
 
-            return AstrBotPluginPage.apiGet('/api/plugin/volitional/judgments?limit=50');
+            return AstrBotPluginPage.apiGet('/judgments', { limit: '50' });
         }).then(function(resp) {
             if (!resp || !resp.judgments || resp.judgments.length === 0) {
                 list.innerHTML = '<div class="empty">暂无判断记录</div>';

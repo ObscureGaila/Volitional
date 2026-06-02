@@ -74,7 +74,7 @@ class PluginVolitional(Star):
             return {"judgments": rows}
 
         self.context.register_web_api(
-            "/api/plugin/volitional/judgments",
+            "/astrbot_plugin_volitional/judgments",
             api_judgments,
             methods=["GET"],
             desc="获取 Volitional 判断日志",
