@@ -45,6 +45,9 @@
     var backBar = document.getElementById('backBar');
 
     function loadPage(page) {
+        pageContent.style.display = 'flex';
+        pageContent.style.flexDirection = 'column';
+        pageContent.style.height = '100vh';
         pageContent.innerHTML = '<div style="text-align:center;color:#636e72;padding:40px;">加载中...</div>';
         pageContent.classList.add('active');
         homeView.style.display = 'none';
@@ -75,6 +78,9 @@
     function showHome() {
         homeView.style.display = 'block';
         pageContent.classList.remove('active');
+        pageContent.style.display = '';
+        pageContent.style.flexDirection = '';
+        pageContent.style.height = '';
         pageContent.innerHTML = '';
         backBar.classList.remove('active');
     }
