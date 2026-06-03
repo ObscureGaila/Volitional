@@ -333,12 +333,23 @@ class ChatHandler:
             f"可回={score.replyability:.2f}"
         )
 
+        # Build recent conversation context for the main LLM
+        max_msgs = int(self._config.get("max_context_messages", 5))
+        buffer = self._get_buffer(umo)
+        recent = list(buffer)[-max_msgs:]
+        context_lines = "\n".join(
+            f"[{ts.strftime('%H:%M:%S')}] {label}"
+            for ts, label in recent
+        ) if recent else ""
+
         req.system_prompt = (
             req.system_prompt
             + "\n普通网友闲聊，每轮回复严格控制在1-2句话，≤30个字，大白话，无修饰、无排比、不展开长篇，随口聊天打屁式短句。"
             + "\n请牢记你的人格设定，从话语里要能表现出活跃的互动和情感。回复用语进行活人感优化。"
             + "\n例如：将“哈哈”转换为“哈哈哈哈哈”、“hhhhhhhhhh”，将“行”在无奈或无语的时候转化为“止”，更适用于网络聊天。"
             + "\n不用完全遵循这些文字替换，要有变化的，凸显出互动性和情感。"
+            + f"\n\n近期聊天记录供参考：\n{context_lines}"
+            + "\n\n请根据以上聊天记录，参考对话话题和风格，做出自然回复。"
             + "\n回复必须严格输出为单个JSON数组，多条时合并在同一数组内，示例：[{\"ind\":0,\"str\":\"第一句\"},{\"ind\":1,\"str\":\"第二句\"}]。禁止输出多个独立JSON数组。"
         )
 
