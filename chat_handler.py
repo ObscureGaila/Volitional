@@ -1,3 +1,5 @@
+import asyncio
+import random
 from collections import deque
 from datetime import datetime
 
@@ -315,7 +317,7 @@ class ChatHandler:
             f"关联={score.relevance:.2f} 可回={score.replyability:.2f}"
         )
 
-        req.system_prompt += "\n普通网友闲聊，每轮回复严格控制在1-2句话，≤30个字，大白话，无修饰、无排比、不展开长篇，随口聊天打屁式短句。\n如需发送多条短消息，以JSON数组格式输出：[{\"ind\":0,\"str\":\"第一句\"},{\"ind\":1,\"str\":\"第二句\"}]"
+        req.system_prompt += "\n普通网友闲聊，每轮回复严格控制在1-2句话，≤30个字，大白话，无修饰、无排比、不展开长篇，随口聊天打屁式短句。\n回复必须以JSON数组格式输出：[{\"ind\":0,\"str\":\"回复内容\"}]，即使只有一条消息也使用此格式。"
 
     # ③ LLM 响应后：追加 Bot 回复到历史缓冲区
     async def log_response(self, event: AstrMessageEvent, response: LLMResponse):
@@ -368,14 +370,20 @@ class ChatHandler:
         return [text]
 
     async def final_decorate(self, event: AstrMessageEvent):
-        """发送消息前进行最终修饰。若存在多消息则清空原链，由 Agent 工具负责发送。
+        """发送消息前进行最终修饰。统一按 JSON 数组解析并逐条发送，间隔 1~2 秒。
 
         Args:
             event: 消息事件。
         """
         messages = event.get_extra("volitional_messages")
-        if not messages or len(messages) <= 1:
+        if not messages:
             return
+
         result = event.get_result()
         result.chain = []
         event.stop_event()
+
+        for msg in messages:
+            delay = len(msg) * random.uniform(0.2, 0.3)
+            await asyncio.sleep(delay)
+            await event.send(MessageChain([Plain(msg)]))
