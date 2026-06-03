@@ -299,9 +299,16 @@ class ChatHandler:
                     sender_name=event.get_sender_name() or "",
                     message=event.get_message_str(),
                     overall=score.overall,
+                    speaker_target_clarity=score.speaker_target_clarity,
+                    privacy_safety_risk=score.privacy_safety_risk,
                     relevance=score.relevance,
+                    user_intent_clarity=score.user_intent_clarity,
                     replyability=score.replyability,
+                    context_completeness=score.context_completeness,
+                    turn_idleness=score.turn_idleness,
                     emotional_suitability=score.emotional_suitability,
+                    intervention_naturalness=score.intervention_naturalness,
+                    group_atmosphere_fit=score.group_atmosphere_fit,
                     should_reply=score.should_reply,
                     reason=score.reason,
                     chat_type=chat_type,
@@ -313,15 +320,17 @@ class ChatHandler:
         if not score.should_reply:
             logger.info(
                 f"[Volitional] 跳过 | {score.reason} | "
-                f"综合={score.overall:.2f} 关联={score.relevance:.2f} "
-                f"可回={score.replyability:.2f} 情感={score.emotional_suitability:.2f}"
+                f"综合={score.overall:.2f} 指向={score.speaker_target_clarity:.2f} "
+                f"关联={score.relevance:.2f} 可回={score.replyability:.2f} "
+                f"情感={score.emotional_suitability:.2f}"
             )
             event.stop_event()
             return
 
         logger.info(
             f"[Volitional] 回复 | 综合={score.overall:.2f} "
-            f"关联={score.relevance:.2f} 可回={score.replyability:.2f}"
+            f"指向={score.speaker_target_clarity:.2f} 关联={score.relevance:.2f} "
+            f"可回={score.replyability:.2f}"
         )
 
         req.system_prompt = (

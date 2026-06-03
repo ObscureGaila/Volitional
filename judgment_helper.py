@@ -10,20 +10,23 @@ from .models import JudgmentScore
 class JudgmentHelper:
     """调用辅助模型对对话进行评分，判断机器人是否适合回复。
 
-    单例模式，通过辅助 LLM 对对话内容的 7 个维度打分，
+    单例模式，通过辅助 LLM 对对话内容的 10 个维度打分，
     加权计算综合得分后与阈值比较，决定是否建议回复。
     """
 
     _instance = None
 
     DEFAULT_WEIGHTS = {
-        "relevance": 0.25,
-        "replyability": 0.25,
-        "context_completeness": 0.15,
+        "speaker_target_clarity": 0.15,
+        "privacy_safety_risk": 0.05,
+        "relevance": 0.15,
+        "user_intent_clarity": 0.10,
+        "replyability": 0.15,
+        "context_completeness": 0.05,
+        "turn_idleness": 0.10,
         "emotional_suitability": 0.10,
-        "timeliness": 0.10,
-        "information_density": 0.10,
-        "intervention_naturalness": 0.05,
+        "intervention_naturalness": 0.10,
+        "group_atmosphere_fit": 0.05,
     }
 
     DEFAULT_REPLY_THRESHOLD = 0.55
@@ -85,7 +88,8 @@ class JudgmentHelper:
         """构建发送给辅助模型的评分 prompt"""
         return (
             "你是一个对话分析助手。请根据以下对话内容，判断机器人是否适合回复。\n"
-            "注意：标记为「机器人自己」的消息是机器人发的，可作为语境参考但评分时应降权，这类消息的关联度/可回复性应酌情降低。\n\n"
+            "核心规则：如果消息中明确提到了机器人的名字，关联度(relevance)应 >= 0.9，整体应倾向于回复。\n"
+            "注意：标记为「机器人自己」的消息是机器人发的，可作为语境参考但评分时应降权。\n\n"
             + self.describe_metrics()
             + f"\n\n对话内容：\n{conversation_text}"
         )
@@ -180,15 +184,23 @@ class JudgmentHelper:
     def describe_metrics() -> str:
         """返回各指标的说明文本，供小模型 prompt 使用。"""
         return (
-            "请对以下维度以 0~1 的浮点数打分，保留两位小数：\n"
-            "1. relevance (关联度)：消息与机器人/当前话题的关联程度。\n"
-            "2. replyability (可回复性)：消息中是否存在可被明确回应的问题或陈述。\n"
-            "3. context_completeness (语境完整度)：上下文是否足够支撑有意义的回复。\n"
-            "4. emotional_suitability (情感适合度)：情绪氛围是否适合介入，0=消极/敌对，1=积极/友善。\n"
-            "5. timeliness (时效性)：消息是否足够新、需要即时回应。\n"
-            "6. information_density (信息密度)：实质性内容占比，纯表情/语气词为低。\n"
-            "7. intervention_naturalness (介入自然度)：此时介入是否自然不突兀。\n"
-            "输出格式为 JSON：{\"relevance\": 0.8, \"replyability\": 0.7, ...}"
+            "请对以下多人聊天消息的回复判断维度进行0~1的浮点数打分，保留两位小数。打分严格遵循每个维度的定义，优先基于群聊整体上下文而非单条消息判断：\n\n"
+            "1. speaker_target_clarity（发言指向明确度）：消息是否明确指向机器人。0=明确指向其他特定用户；0.3=公开发言且与机器人无关；0.7=公开发言但话题与机器人相关；1.0=明确@机器人或直接对机器人提问。\n"
+            "2. privacy_safety_risk（隐私安全风险）：消息是否涉及敏感信息、违法违规内容或群规禁止内容。0=存在极高风险（如隐私泄露、暴力、广告刷屏）；1=无任何风险。\n"
+            "3. relevance（关联度）：消息与群聊当前核心话题、机器人设定角色的双重关联程度。0=完全无关且超出机器人角色范围；1=高度契合当前话题且匹配机器人定位。\n"
+            "4. user_intent_clarity（用户意图清晰度）：发言者的核心表达意图是否明确可识别。0=意图完全模糊（如乱码、无意义符号）；1=意图非常明确（如提问、分享、邀请讨论）。\n"
+            "5. replyability（可回复性）：消息是否存在机器人可自然回应的内容点。0=完全无法回应（如纯表情刷屏）；1=有多个清晰可回应的切入点。\n"
+            "6. context_completeness（语境完整度）：结合群聊全部历史上下文，是否能完整理解该消息的含义和背景。0=上下文严重缺失，无法理解；1=上下文完整，无需额外信息。\n"
+            "7. turn_idleness（对话轮次空闲度）：当前对话轮次是否适合机器人介入。0=有用户正在连续发言或其他用户正等待回应；0.5=对话有短暂停顿但仍有活跃讨论；1.0=对话轮次空闲（无人发言≥3秒）或上一条是对机器人的提问。\n"
+            "8. emotional_suitability（情感适合度）：单条消息情绪+群聊整体情绪氛围是否适合机器人介入。0=极端敌对/争吵/悲伤氛围，需回避；1=积极/中性/温和讨论氛围，适合正常参与。\n"
+            "9. intervention_naturalness（介入自然度）：机器人此时回复是否符合群聊社交逻辑，不突兀不抢话。0=强行插话会打断正常对话；1=介入时机和方式都非常自然。\n"
+            "10. group_atmosphere_fit（群聊氛围适配度）：机器人的潜在回复风格是否匹配当前群聊的整体调性。0=完全不匹配（如严肃群聊发搞笑内容）；1=高度契合群聊一贯氛围。\n\n"
+            "输出要求：\n"
+            "1. 严格输出标准JSON格式，不得添加任何解释、说明、换行或多余字符\n"
+            "2. 所有10个维度必须全部打分，不得遗漏\n"
+            "3. 分数保留两位小数，例如0.85、0.00、1.00\n\n"
+            '输出格式示例：\n'
+            '{"speaker_target_clarity":1.00,"privacy_safety_risk":1.00,"relevance":0.90,"user_intent_clarity":0.85,"replyability":0.95,"context_completeness":0.90,"turn_idleness":1.00,"emotional_suitability":0.90,"intervention_naturalness":0.95,"group_atmosphere_fit":0.85}'
         )
 
     async def initialize(self):

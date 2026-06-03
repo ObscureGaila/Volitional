@@ -81,9 +81,16 @@ class VolitionalDB:
                 sender_name TEXT,
                 message TEXT,
                 overall REAL,
+                speaker_target_clarity REAL,
+                privacy_safety_risk REAL,
                 relevance REAL,
+                user_intent_clarity REAL,
                 replyability REAL,
+                context_completeness REAL,
+                turn_idleness REAL,
                 emotional_suitability REAL,
+                intervention_naturalness REAL,
+                group_atmosphere_fit REAL,
                 should_reply INTEGER,
                 reason TEXT,
                 created_at TEXT DEFAULT (datetime('now', 'localtime'))
@@ -103,6 +110,7 @@ class VolitionalDB:
         self._ensure_conn().commit()
 
         self._migrate_add_chat_columns(c)
+        self._migrate_v2_metrics(c)
 
     def _migrate_add_chat_columns(self, c):
         try:
@@ -113,6 +121,20 @@ class VolitionalDB:
             c.execute("ALTER TABLE judgment_log ADD COLUMN chat_id TEXT DEFAULT ''")
         except Exception:
             pass
+        self._ensure_conn().commit()
+
+    def _migrate_v2_metrics(self, c):
+        cols = [
+            "speaker_target_clarity", "privacy_safety_risk",
+            "user_intent_clarity", "context_completeness",
+            "turn_idleness", "intervention_naturalness",
+            "group_atmosphere_fit",
+        ]
+        for col in cols:
+            try:
+                c.execute(f"ALTER TABLE judgment_log ADD COLUMN {col} REAL DEFAULT 0.0")
+            except Exception:
+                pass
         self._ensure_conn().commit()
 
     def _migrate_add_msg_chat_columns(self, c):
@@ -312,16 +334,29 @@ class VolitionalDB:
         conv_id: str | None = None,
         chat_type: str = "",
         chat_id: str = "",
+        speaker_target_clarity: float = 0.0,
+        privacy_safety_risk: float = 0.0,
+        user_intent_clarity: float = 0.0,
+        context_completeness: float = 0.0,
+        turn_idleness: float = 0.0,
+        intervention_naturalness: float = 0.0,
+        group_atmosphere_fit: float = 0.0,
     ):
         c = self._cursor()
         c.execute(
             """INSERT INTO judgment_log
                (umo, chat_type, chat_id, conv_id, sender_name, message,
-                overall, relevance, replyability, emotional_suitability,
+                overall, speaker_target_clarity, privacy_safety_risk,
+                relevance, user_intent_clarity, replyability,
+                context_completeness, turn_idleness, emotional_suitability,
+                intervention_naturalness, group_atmosphere_fit,
                 should_reply, reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (umo, chat_type, chat_id, conv_id, sender_name, message,
-             overall, relevance, replyability, emotional_suitability,
+             overall, speaker_target_clarity, privacy_safety_risk,
+             relevance, user_intent_clarity, replyability,
+             context_completeness, turn_idleness, emotional_suitability,
+             intervention_naturalness, group_atmosphere_fit,
              int(should_reply), reason),
         )
         self._ensure_conn().commit()
@@ -329,7 +364,12 @@ class VolitionalDB:
     def get_recent_judgments(self, umo: str, limit: int = 10) -> list[dict]:
         c = self._cursor()
         rows = c.execute(
-            """SELECT id, sender_name, message, overall, relevance, replyability,
+            """SELECT id, sender_name, message, overall,
+                      speaker_target_clarity, privacy_safety_risk,
+                      relevance, user_intent_clarity, replyability,
+                      context_completeness, turn_idleness,
+                      emotional_suitability, intervention_naturalness,
+                      group_atmosphere_fit,
                       should_reply, reason, created_at, chat_type, chat_id, umo
                FROM judgment_log
                WHERE umo = ?
@@ -339,9 +379,13 @@ class VolitionalDB:
         return [
             {
                 "id": r[0], "sender": r[1], "message": r[2], "overall": r[3],
-                "relevance": r[4], "replyability": r[5],
-                "should_reply": bool(r[6]), "reason": r[7], "time": r[8],
-                "chat_type": r[9], "chat_id": r[10], "umo": r[11],
+                "speaker_target_clarity": r[4], "privacy_safety_risk": r[5],
+                "relevance": r[6], "user_intent_clarity": r[7],
+                "replyability": r[8], "context_completeness": r[9],
+                "turn_idleness": r[10], "emotional_suitability": r[11],
+                "intervention_naturalness": r[12], "group_atmosphere_fit": r[13],
+                "should_reply": bool(r[14]), "reason": r[15], "time": r[16],
+                "chat_type": r[17], "chat_id": r[18], "umo": r[19],
             }
             for r in rows
         ]
@@ -349,7 +393,12 @@ class VolitionalDB:
     def get_recent_judgments_all(self, limit: int = 50) -> list[dict]:
         c = self._cursor()
         rows = c.execute(
-            """SELECT id, sender_name, message, overall, relevance, replyability,
+            """SELECT id, sender_name, message, overall,
+                      speaker_target_clarity, privacy_safety_risk,
+                      relevance, user_intent_clarity, replyability,
+                      context_completeness, turn_idleness,
+                      emotional_suitability, intervention_naturalness,
+                      group_atmosphere_fit,
                       should_reply, reason, created_at, chat_type, chat_id, umo
                FROM judgment_log
                ORDER BY id DESC LIMIT ?""",
@@ -358,9 +407,13 @@ class VolitionalDB:
         return [
             {
                 "id": r[0], "sender": r[1], "message": r[2], "overall": r[3],
-                "relevance": r[4], "replyability": r[5],
-                "should_reply": bool(r[6]), "reason": r[7], "time": r[8],
-                "chat_type": r[9], "chat_id": r[10], "umo": r[11],
+                "speaker_target_clarity": r[4], "privacy_safety_risk": r[5],
+                "relevance": r[6], "user_intent_clarity": r[7],
+                "replyability": r[8], "context_completeness": r[9],
+                "turn_idleness": r[10], "emotional_suitability": r[11],
+                "intervention_naturalness": r[12], "group_atmosphere_fit": r[13],
+                "should_reply": bool(r[14]), "reason": r[15], "time": r[16],
+                "chat_type": r[17], "chat_id": r[18], "umo": r[19],
             }
             for r in rows
         ]
