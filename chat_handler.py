@@ -273,16 +273,18 @@ class ChatHandler:
         if not is_targeted and score.should_reply:
             deduction = self._compute_cooldown_deduction(umo)
             if deduction > 0:
-                original_overall = score.overall
-                score.overall = round(max(0.0, score.overall - deduction), 4)
-                threshold = self.judgment_helper.reply_threshold
-                score.should_reply = score.overall >= threshold
-                if not score.should_reply:
-                    score.reason = f"冷却扣分 {deduction:.2f}，综合分降至 {score.overall:.2f}（原 {original_overall:.2f}），未达阈值。"
-                else:
-                    score.reason += f" | 冷却扣分 {deduction:.2f}（原综合 {original_overall:.2f}）"
-                event.set_extra("judgment_score", score)
-                event.set_extra("should_reply", score.should_reply)
+                effective_deduction = round(deduction * (1 - score.relevance), 4)
+                if effective_deduction > 0:
+                    original_overall = score.overall
+                    score.overall = round(max(0.0, score.overall - effective_deduction), 4)
+                    threshold = self.judgment_helper.reply_threshold
+                    score.should_reply = score.overall >= threshold
+                    if not score.should_reply:
+                        score.reason = f"冷却扣分 {effective_deduction:.2f}（关联度 {score.relevance:.2f} 抵扣后），综合分降至 {score.overall:.2f}（原 {original_overall:.2f}），未达阈值。"
+                    else:
+                        score.reason += f" | 冷却扣分 {effective_deduction:.2f}（关联度抵扣后，原综合 {original_overall:.2f}）"
+                    event.set_extra("judgment_score", score)
+                    event.set_extra("should_reply", score.should_reply)
 
         if self._db:
             try:
