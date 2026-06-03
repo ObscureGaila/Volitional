@@ -56,7 +56,6 @@
         </div>
     </div>
     <div class="content" id="contentView"></div>
-    <div class="float-btns" id="floatBtns" style="display:none;"></div>
 </body>
 <script>
 (function() {
@@ -70,13 +69,32 @@
     function showList() {
         document.getElementById('viewList').style.display = 'flex';
         document.getElementById('viewDetail').style.display = 'none';
-        document.getElementById('floatBtns').style.display = 'none';
+        // Remove dynamic float buttons from body
+        var oldBtns = document.querySelectorAll('.float-btn-dynamic');
+        for (var i = 0; i < oldBtns.length; i++) {
+            oldBtns[i].parentNode.removeChild(oldBtns[i]);
+        }
     }
 
     function showDetail(convId) {
         document.getElementById('viewList').style.display = 'none';
         document.getElementById('viewDetail').style.display = 'flex';
-        document.getElementById('floatBtns').style.display = 'flex';
+
+        // Create float buttons dynamically on body (createElement required per experience.md)
+        var btnTop = document.createElement('button');
+        btnTop.className = 'float-btn-dynamic';
+        btnTop.style.cssText = 'position:fixed;right:20px;bottom:140px;z-index:99;width:36px;height:36px;border-radius:50%;background:#0f3460;color:#eee;border:none;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;opacity:0.7;';
+        btnTop.textContent = '↑';
+        btnTop.addEventListener('click', scrollToTop);
+        document.body.appendChild(btnTop);
+
+        var btnBottom = document.createElement('button');
+        btnBottom.className = 'float-btn-dynamic';
+        btnBottom.style.cssText = 'position:fixed;right:20px;bottom:100px;z-index:99;width:36px;height:36px;border-radius:50%;background:#0f3460;color:#eee;border:none;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;opacity:0.7;';
+        btnBottom.textContent = '↓';
+        btnBottom.addEventListener('click', scrollToBottom);
+        document.body.appendChild(btnBottom);
+
         loadDetail(convId);
     }
 
@@ -232,21 +250,6 @@
             loadList();
         });
         document.getElementById('detailHeaderLeft').appendChild(backBtn);
-
-        // Float buttons (createElement required)
-        var floatContainer = document.getElementById('floatBtns');
-
-        var btnTop = document.createElement('button');
-        btnTop.textContent = '↑';
-        btnTop.title = '跳到最上方';
-        btnTop.addEventListener('click', scrollToTop);
-        floatContainer.appendChild(btnTop);
-
-        var btnBottom = document.createElement('button');
-        btnBottom.textContent = '↓';
-        btnBottom.title = '跳到最下方';
-        btnBottom.addEventListener('click', scrollToBottom);
-        floatContainer.appendChild(btnBottom);
 
         showList();
         loadList();
