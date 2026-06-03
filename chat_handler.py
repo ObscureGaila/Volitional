@@ -339,7 +339,7 @@ class ChatHandler:
             + "\n请牢记你的人格设定，从话语里要能表现出活跃的互动和情感。回复用语进行活人感优化。"
             + "\n例如：将“哈哈”转换为“哈哈哈哈哈”、“hhhhhhhhhh”，将“行”在无奈或无语的时候转化为“止”，更适用于网络聊天。"
             + "\n不用完全遵循这些文字替换，要有变化的，凸显出互动性和情感。"
-            + "\n回复必须以JSON数组格式输出：[{\"ind\":0,\"str\":\"回复内容\"}]，即使只有一条消息也使用此格式。"
+            + "\n回复必须严格输出为单个JSON数组，多条时合并在同一数组内，示例：[{\"ind\":0,\"str\":\"第一句\"},{\"ind\":1,\"str\":\"第二句\"}]。禁止输出多个独立JSON数组。"
         )
 
     # ③ LLM 响应后：追加 Bot 回复到历史缓冲区
@@ -373,13 +373,13 @@ class ChatHandler:
                     logger.warning(f"[Volitional] 持久化助手回复失败: {e}")
 
     def _parse_multi_message(self, text: str) -> list[str]:
-        """解析 LLM 输出是否为多消息 JSON 数组格式。按 [...] 边界提取后解析，兼容末尾多余字符。
+        """解析 LLM 输出中的 JSON 数组消息。支持单个数组或多段独立数组的合并。
 
         Args:
             text: LLM 生成的原始文本。
 
         Returns:
-            list[str]: 若为合法 JSON 数组则返回各消息文本列表，否则返回含原文的单元素列表。
+            list[str]: 解析出的消息文本列表，失败则返回含原文的单元素列表。
         """
         import json
 
@@ -395,19 +395,38 @@ class ChatHandler:
         except Exception:
             pass
 
-        # Extract the JSON array by [...] boundaries
-        start = stripped.find("[")
-        end = stripped.rfind("]")
-        if start != -1 and end > start:
-            try:
-                data = json.loads(stripped[start:end + 1])
-                if isinstance(data, list):
-                    msgs = [item.get("str", "") for item in data if isinstance(item, dict)]
-                    if msgs and all(isinstance(m, str) for m in msgs):
-                        return msgs
-            except Exception:
-                pass
+        # Find all [...] JSON array blocks (merge multiple independent arrays)
+        all_msgs = []
+        i = 0
+        while i < len(stripped):
+            start = stripped.find("[", i)
+            if start == -1:
+                break
+            depth = 0
+            end = start
+            while end < len(stripped):
+                ch = stripped[end]
+                if ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                end += 1
+            if depth == 0 and end > start:
+                try:
+                    data = json.loads(stripped[start:end + 1])
+                    if isinstance(data, list):
+                        msgs = [item.get("str", "") for item in data if isinstance(item, dict)]
+                        all_msgs.extend(m for m in msgs if isinstance(m, str))
+                except Exception:
+                    pass
+                i = end + 1
+            else:
+                i += 1
 
+        if all_msgs:
+            return all_msgs
         return [text]
 
     async def final_decorate(self, event: AstrMessageEvent):
