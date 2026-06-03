@@ -39,6 +39,7 @@ class ChatHandler:
         self._umo_meta: dict[str, dict[str, str]] = {}
         self._last_reply_time: dict[str, datetime] = {}
         self._reply_count: dict[str, int] = {}
+        self._last_send_time: dict[str, datetime] = {}
 
     def _get_umo(self, event: AstrMessageEvent) -> str:
         """从事件中提取统一会话标识。
@@ -227,6 +228,10 @@ class ChatHandler:
         if self._is_noise(outline):
             return
 
+        last_send = self._last_send_time.get(umo)
+        if last_send and (datetime.now() - last_send).total_seconds() < 1.0:
+            return
+
         yield event.request_llm(
             prompt=event.get_message_str(),
         )
@@ -359,7 +364,7 @@ class ChatHandler:
                     logger.warning(f"[Volitional] 持久化助手回复失败: {e}")
 
     def _parse_multi_message(self, text: str) -> list[str]:
-        """解析 LLM 输出是否为多消息 JSON 数组格式。
+        """解析 LLM 输出是否为多消息 JSON 数组格式。按 [...] 边界提取后解析，兼容末尾多余字符。
 
         Args:
             text: LLM 生成的原始文本。
@@ -367,15 +372,33 @@ class ChatHandler:
         Returns:
             list[str]: 若为合法 JSON 数组则返回各消息文本列表，否则返回含原文的单元素列表。
         """
+        import json
+
+        stripped = text.strip()
+
+        # Try direct parse first
         try:
-            import json
-            data = json.loads(text)
+            data = json.loads(stripped)
             if isinstance(data, list):
                 msgs = [item.get("str", "") for item in data if isinstance(item, dict)]
                 if msgs and all(isinstance(m, str) for m in msgs):
                     return msgs
         except Exception:
             pass
+
+        # Extract the JSON array by [...] boundaries
+        start = stripped.find("[")
+        end = stripped.rfind("]")
+        if start != -1 and end > start:
+            try:
+                data = json.loads(stripped[start:end + 1])
+                if isinstance(data, list):
+                    msgs = [item.get("str", "") for item in data if isinstance(item, dict)]
+                    if msgs and all(isinstance(m, str) for m in msgs):
+                        return msgs
+            except Exception:
+                pass
+
         return [text]
 
     async def final_decorate(self, event: AstrMessageEvent):
@@ -396,3 +419,5 @@ class ChatHandler:
             delay = len(msg) * random.uniform(0.2, 0.3)
             await asyncio.sleep(delay)
             await event.send(MessageChain([Plain(msg)]))
+
+        self._last_send_time[self._get_umo(event)] = datetime.now()
