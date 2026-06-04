@@ -11,6 +11,7 @@ from astrbot.api import logger, AstrBotConfig
 from .judgment_helper import JudgmentHelper
 from .models import JudgmentScore
 from .db_helper import VolitionalDB
+from .multimodal_helper import MultimodalHelper
 
 
 class ChatHandler:
@@ -23,7 +24,7 @@ class ChatHandler:
     - on_decorating_result: 发送前的最终修饰（预留扩展）
     """
 
-    def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig, db: VolitionalDB | None = None):
+    def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig, db: VolitionalDB | None = None, multimodal_helper: MultimodalHelper | None = None):
         """初始化聊天处理器。
 
         Args:
@@ -34,6 +35,7 @@ class ChatHandler:
         self.judgment_helper = judgment_helper
         self._config = config
         self._db = db
+        self._multimodal = multimodal_helper
         self._conversation_buffers: dict[str, deque[tuple[datetime, str]]] = {}
         self._max_buffer_size = 50
         self._umo_meta: dict[str, dict[str, str]] = {}
@@ -183,9 +185,7 @@ class ChatHandler:
             bool: True 表示是噪音消息。
         """
         noise_patterns = {
-            "[图片]", "[视频]", "[语音]", "[文件]",
-            "[表情]", "[戳一戳]", "[转发消息]",
-            "[ComponentType.Poke]",
+            "[语音]", "[文件]", "[转发消息]",
         }
         stripped = outline.strip()
         if stripped in noise_patterns:
@@ -193,6 +193,55 @@ class ChatHandler:
         if len(stripped) < 2:
             return True
         return False
+
+    async def _describe_media(self, event: AstrMessageEvent, umo: str) -> tuple[str | None, list[str]]:
+        """检测消息中的图片/视频，调用多模态模型生成描述。
+
+        Args:
+            event: 消息事件。
+            umo: 统一会话标识。
+
+        Returns:
+            tuple[str | None, list[str]]: (文字描述, 所有媒体URL列表)，无媒体或失败返回 (None, [])。
+        """
+        try:
+            messages = event.get_messages()
+        except Exception:
+            return None, []
+
+        image_urls = []
+        video_urls = []
+        has_media = False
+        for comp in messages:
+            comp_str = str(comp)
+            if hasattr(comp, 'file') and comp.file:
+                if comp_str.startswith("Image") or comp_str.startswith("Face"):
+                    image_urls.append(comp.file)
+                    has_media = True
+                elif comp_str.startswith("Video"):
+                    video_urls.append(comp.file)
+                    has_media = True
+            elif comp_str.startswith("Face") or comp_str.startswith("Poke"):
+                has_media = True
+
+        all_urls = image_urls + video_urls
+
+        if not has_media:
+            return None, []
+        if not image_urls and not video_urls:
+            return None, all_urls
+
+        descriptions = []
+        for url in image_urls:
+            desc = await self._multimodal.analyze_image(url)
+            if desc:
+                descriptions.append(desc)
+        for url in video_urls:
+            desc = await self._multimodal.analyze_video(url)
+            if desc:
+                descriptions.append(desc)
+
+        return "；".join(descriptions) if descriptions else None, all_urls
 
     # ① 记录消息 + 显式发起 LLM 请求
     async def on_all_message(self, event: AstrMessageEvent):
@@ -216,10 +265,24 @@ class ChatHandler:
         labeled = f"[{sender_name}]{extra_marker}: {outline}"
         self._get_buffer(umo).append((datetime.now(), labeled))
 
+        # Detect images/videos and describe via multimodal model
+        if self._multimodal and self._multimodal.is_configured():
+            media_result, media_urls = await self._describe_media(event, umo)
+            if media_result or media_urls:
+                url_part = " | ".join(media_urls) if media_urls else ""
+                desc_part = f": {media_result}" if media_result else ""
+                if url_part:
+                    labeled = labeled.replace("[图片]", f"[图片]({url_part}){desc_part}")
+                    labeled = labeled.replace("[视频]", f"[视频]({url_part}){desc_part}")
+                buffer = self._get_buffer(umo)
+                if buffer:
+                    buffer.pop()
+                    buffer.append((datetime.now(), labeled))
+
         if self._db:
             try:
                 chat_type, chat_id = self._get_chat_info(event)
-                self._db.add_message(umo, "user", event.get_message_str(),
+                self._db.add_message(umo, "user", labeled,
                                      chat_type=chat_type, chat_id=chat_id,
                                      sender_name=sender_name)
             except Exception as e:

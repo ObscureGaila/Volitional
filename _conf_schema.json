@@ -5,6 +5,12 @@
         "hint": "选择一个用于辅助判断的大模型",
         "_special": "select_provider"
     },
+    "multimodal_provider": {
+        "description": "多模态辅助模型",
+        "type": "string",
+        "hint": "选择一个用于识别图片、视频、文字内容的多模态模型",
+        "_special": "select_provider"
+    },
     "bot_name": {
         "description": "机器人名字",
         "type": "string",

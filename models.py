@@ -46,3 +46,41 @@ class JudgmentScore:
 
     reason: str = ""
     """判断理由简述。"""
+
+
+class MultimodalPrompts:
+    """多模态辅助模型的提示词，区分图片和视频场景。"""
+
+    IMAGE_PROMPT_ADVANCED = (
+        "【群聊图片分析】请提取这张图片的核心信息，按以下要点简洁描述，总字数≤120字：\n"
+        "1. 核心主体：主要人物/物体/场景\n"
+        "2. 关键文字：所有可见文字内容（完整准确）\n"
+        "3. 特殊元素：表情包、二维码、链接、联系方式等\n"
+        "4. 关联信息：与群聊话题直接相关的细节\n"
+        "5. 情绪氛围：图片传递的整体感受\n"
+        "输出要求：用陈述句，避免主观推测，只描述客观事实。"
+    )
+
+    VIDEO_PROMPT_ADVANCED = (
+        "【群聊视频分析】请提取这段视频的核心信息，按以下要点简洁描述，总字数≤180字：\n"
+        "1. 核心内容：主要人物、关键动作、场景变化\n"
+        "2. 关键文字：所有字幕/文字内容（完整准确）\n"
+        "3. 特殊元素：背景音乐、特效、表情包等\n"
+        "4. 关联信息：与群聊话题直接相关的细节\n"
+        "5. 情绪氛围：视频传递的整体感受\n"
+        "输出要求：用陈述句，避免主观推测，只描述客观事实。"
+    )
+
+    @classmethod
+    def get_prompt(cls, media_type: str) -> str:
+        """根据媒体类型获取对应提示词。
+
+        Args:
+            media_type: "image" 或 "video"
+
+        Returns:
+            str: 对应的提示词文本
+        """
+        if media_type == "video":
+            return cls.VIDEO_PROMPT
+        return cls.IMAGE_PROMPT

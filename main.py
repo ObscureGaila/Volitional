@@ -10,6 +10,7 @@ from astrbot.api.provider import ProviderRequest, LLMResponse
 from .judgment_helper import JudgmentHelper
 from .chat_handler import ChatHandler
 from .db_helper import VolitionalDB
+from .multimodal_helper import MultimodalHelper
 
 
 class PluginVolitional(Star):
@@ -32,6 +33,7 @@ class PluginVolitional(Star):
         self.config = config
         self._task = None
         self._helper: JudgmentHelper | None = None
+        self._multimodal: MultimodalHelper | None = None
         self._db: VolitionalDB | None = None
         self._chat_handler: ChatHandler | None = None
 
@@ -42,7 +44,8 @@ class PluginVolitional(Star):
         self._db.init_tables()
 
         self._helper = JudgmentHelper(self.context, self.config)
-        self._chat_handler = ChatHandler(self._helper, self.config, self._db)
+        self._multimodal = MultimodalHelper(self.context, self.config)
+        self._chat_handler = ChatHandler(self._helper, self.config, self._db, self._multimodal)
         self._task = asyncio.create_task(self._periodic_loop())
         self._register_web_apis()
 
@@ -264,6 +267,8 @@ class PluginVolitional(Star):
             self._task.cancel()
         if self._helper:
             await self._helper.terminate()
+        if self._multimodal:
+            await self._multimodal.terminate()
         if self._db:
             self._db.close()
 
