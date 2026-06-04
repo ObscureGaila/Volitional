@@ -173,15 +173,16 @@
     }
 
     function parseMediaTags(content) {
+        // 检测 <<IMG>> 或 <<VID>> 标记（base64 已拆分到 media_base64 列，按需加载）
         var parts = [];
-        var re = /<<(IMG|VID)>>(.+?)<<END>>/g;
+        var re = /<<(IMG|VID)>>/g;
         var lastIdx = 0;
         var match;
         while ((match = re.exec(content)) !== null) {
             if (match.index > lastIdx) {
                 parts.push({type: 'text', text: content.substring(lastIdx, match.index)});
             }
-            parts.push({type: match[1] === 'IMG' ? 'image' : 'video', src: match[2]});
+            parts.push({type: match[1] === 'IMG' ? 'image' : 'video'});
             lastIdx = match.index + match[0].length;
         }
         if (lastIdx < content.length) {
@@ -242,17 +243,32 @@
                         mediaNode.controls = true;
                     }
 
-                    link.addEventListener('click', function() {
-                        if (mediaNode.style.display === 'none') {
-                            // 点击时才加载 src，避免初始加载时批量下载 base64 拖慢速度
-                            if (!mediaNode.src) mediaNode.src = p.src;
-                            mediaNode.style.display = 'block';
-                            link.textContent = p.type === 'image' ? '[收起图片]' : '[收起视频]';
-                        } else {
-                            mediaNode.style.display = 'none';
-                            link.textContent = p.type === 'image' ? '[点击查看图片]' : '[点击查看视频]';
-                        }
-                    });
+                    (function(msgId, mediaType, node, lnk) {
+                        lnk.addEventListener('click', function() {
+                            if (node.style.display === 'none') {
+                                // 点击时从 API 按需加载 base64，不在列表查询中传输
+                                if (!node.src) {
+                                    lnk.textContent = '加载中...';
+                                    AstrBotPluginPage.apiGet('/message_media', { id: msgId }).then(function(resp) {
+                                        if (resp && resp.media) {
+                                            node.src = resp.media;
+                                        }
+                                        node.style.display = 'block';
+                                        lnk.textContent = mediaType === 'image' ? '[收起图片]' : '[收起视频]';
+                                    }).catch(function() {
+                                        node.style.display = 'block';
+                                        lnk.textContent = mediaType === 'image' ? '[收起图片]' : '[收起视频]';
+                                    });
+                                } else {
+                                    node.style.display = 'block';
+                                    lnk.textContent = mediaType === 'image' ? '[收起图片]' : '[收起视频]';
+                                }
+                            } else {
+                                node.style.display = 'none';
+                                lnk.textContent = mediaType === 'image' ? '[点击查看图片]' : '[点击查看视频]';
+                            }
+                        });
+                    })(m.id, p.type, mediaNode, link);
 
                     bubble.appendChild(link);
                     bubble.appendChild(mediaNode);
@@ -264,7 +280,6 @@
             timeSpan.className = 'msg-time';
             timeSpan.textContent = formatTime(m.time) || '';
             item.appendChild(timeSpan);
-
             msgList.appendChild(item);
         });
 

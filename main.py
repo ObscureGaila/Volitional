@@ -92,6 +92,17 @@ class PluginVolitional(Star):
                 logger.error(f"[Volitional] API /messages_detail 错误: {e}", exc_info=True)
                 return {"status": "error", "message": str(e), "messages": []}
 
+        async def api_message_media():
+            try:
+                msg_id = int(request.args.get("id", "0"))
+                if not msg_id:
+                    return {"status": "error", "message": "缺少 id"}
+                media = db.get_message_media(msg_id)
+                return {"status": "ok", "media": media}
+            except Exception as e:
+                logger.error(f"[Volitional] API /message_media 错误: {e}", exc_info=True)
+                return {"status": "error", "message": str(e), "media": ""}
+
         async def api_delete_judgment():
             try:
                 jid = int(request.args.get("id", "0"))
@@ -170,6 +181,12 @@ class PluginVolitional(Star):
             api_messages_detail,
             methods=["GET"],
             desc="获取指定对话的消息详情",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_volitional/message_media",
+            api_message_media,
+            methods=["GET"],
+            desc="按需加载单条消息的媒体 base64 数据",
         )
         self.context.register_web_api(
             "/astrbot_plugin_volitional/delete_judgment",

@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -111,6 +112,8 @@ class VolitionalDB:
 
         self._migrate_add_chat_columns(c)
         self._migrate_v2_metrics(c)
+        self._migrate_add_media_column(c)
+        self._migrate_extract_media(c)
 
     def _migrate_add_chat_columns(self, c):
         try:
@@ -150,6 +153,41 @@ class VolitionalDB:
             c.execute("ALTER TABLE messages ADD COLUMN sender_name TEXT DEFAULT ''")
         except Exception:
             pass
+        self._ensure_conn().commit()
+
+    def _migrate_add_media_column(self, c):
+        try:
+            c.execute("ALTER TABLE messages ADD COLUMN media_base64 TEXT DEFAULT ''")
+        except Exception:
+            pass
+        self._ensure_conn().commit()
+
+    _MEDIA_TAG_RE = re.compile(r'<<(IMG|VID)>>(.+?)<<END>>')
+
+    @classmethod
+    def _extract_media_from_content(cls, content: str) -> tuple[str, str]:
+        """从 content 中提取 base64 媒体数据，返回 (清理后content, media_base64)"""
+        m = cls._MEDIA_TAG_RE.search(content)
+        if m:
+            media_base64 = m.group(2)
+            cleaned = content[:m.start()] + f'<<{m.group(1)}>>' + content[m.end():]
+            return cleaned, media_base64
+        return content, ""
+
+    def _migrate_extract_media(self, c):
+        """迁移已有数据：将 content 中的 base64 拆分到 media_base64 列"""
+        rows = c.execute("SELECT id, content FROM messages WHERE content LIKE '%<<IMG>>%' OR content LIKE '%<<VID>>%'").fetchall()
+        if not rows:
+            return
+        for row in rows:
+            mid = row[0]
+            content = row[1]
+            cleaned, media_base64 = self._extract_media_from_content(content)
+            if media_base64:
+                c.execute(
+                    "UPDATE messages SET content = ?, media_base64 = ? WHERE id = ?",
+                    (cleaned, media_base64, mid),
+                )
         self._ensure_conn().commit()
 
     @staticmethod
@@ -208,12 +246,15 @@ class VolitionalDB:
             ).fetchone()[0]
             seq = max_seq + 1
 
+        # 从 content 中拆分 base64 媒体数据到 media_base64 列
+        cleaned_content, media_base64 = self._extract_media_from_content(content)
+
         c.execute(
-            """INSERT INTO messages (conv_id, seq, role, content, tool_calls, tool_call_id, name, chat_type, chat_id, sender_name)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (conv_id, seq, role, content,
+            """INSERT INTO messages (conv_id, seq, role, content, tool_calls, tool_call_id, name, chat_type, chat_id, sender_name, media_base64)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (conv_id, seq, role, cleaned_content,
              json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
-             tool_call_id, name, chat_type, chat_id, sender_name),
+             tool_call_id, name, chat_type, chat_id, sender_name, media_base64 or None),
         )
         self._ensure_conn().execute(
             "UPDATE conversations SET updated_at = datetime('now', 'localtime') "
@@ -226,7 +267,7 @@ class VolitionalDB:
         c = self._cursor()
         if limit:
             rows = c.execute(
-                """SELECT role, content, tool_calls, tool_call_id, name, created_at, sender_name
+                """SELECT id, role, content, tool_calls, tool_call_id, name, created_at, sender_name
                    FROM messages WHERE conv_id = ?
                    ORDER BY seq DESC LIMIT ?""",
                 (conv_id, limit),
@@ -234,20 +275,23 @@ class VolitionalDB:
             rows = list(reversed(rows))
         else:
             rows = c.execute(
-                """SELECT role, content, tool_calls, tool_call_id, name, created_at, sender_name
+                """SELECT id, role, content, tool_calls, tool_call_id, name, created_at, sender_name
                    FROM messages WHERE conv_id = ?
                    ORDER BY seq""",
                 (conv_id,),
             ).fetchall()
         result = []
+        has_media_re = re.compile(r'<<(IMG|VID)>>')
         for r in rows:
-            msg = {"role": r[0], "content": r[1], "time": r[5], "sender_name": r[6] or ""}
-            if r[2]:
-                msg["tool_calls"] = json.loads(r[2])
+            msg = {"id": r[0], "role": r[1], "content": r[2], "time": r[6], "sender_name": r[7] or ""}
             if r[3]:
-                msg["tool_call_id"] = r[3]
+                msg["tool_calls"] = json.loads(r[3])
             if r[4]:
-                msg["name"] = r[4]
+                msg["tool_call_id"] = r[4]
+            if r[5]:
+                msg["name"] = r[5]
+            if has_media_re.search(r[2]):
+                msg["has_media"] = True
             result.append(msg)
         return result
 
@@ -307,6 +351,15 @@ class VolitionalDB:
             "total": total,
             "messages": msgs,
         }
+
+    def get_message_media(self, msg_id: int) -> str:
+        """按需加载单条消息的 base64 媒体数据。返回空字符串表示无媒体。"""
+        c = self._cursor()
+        row = c.execute(
+            "SELECT media_base64 FROM messages WHERE id = ?",
+            (msg_id,),
+        ).fetchone()
+        return row[0] if row and row[0] else ""
 
     def get_messages_as_openai_json(self, conv_id: str) -> str:
         return json.dumps(self.get_messages(conv_id), ensure_ascii=False)
