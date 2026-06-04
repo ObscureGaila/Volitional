@@ -207,11 +207,15 @@
     function main() {
         document.getElementById('subtitle').textContent = '随心所动 (volitional)';
         buildToolbar();
-        loadChats().then(function() { loadJudgments(); });
+        // 并行加载，减少等待时间
+        Promise.all([loadChats(), loadJudgments()]);
     }
 
-    var tries = 0;
-    var timer = setInterval(function() { tries++; if (window.AstrBotPluginPage) { clearInterval(timer); main(); } else if (tries > 80) { clearInterval(timer); document.getElementById('list').innerHTML = '<div class="error">SDK 加载超时</div>'; } }, 100);
+    // 立即检查 SDK，已就绪则跳过轮询延迟
+    if (window.AstrBotPluginPage) { main(); } else {
+        var tries = 0;
+        var timer = setInterval(function() { tries++; if (window.AstrBotPluginPage) { clearInterval(timer); main(); } else if (tries > 80) { clearInterval(timer); document.getElementById('list').innerHTML = '<div class="error">SDK 加载超时</div>'; } }, 100);
+    }
 })();
 </script>
 </html>
