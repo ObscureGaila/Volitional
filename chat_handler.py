@@ -207,6 +207,7 @@ class ChatHandler:
         try:
             messages = event.get_messages()
         except Exception:
+            logger.debug("[Volitional] _describe_media: 无法获取消息组件")
             return None, []
 
         image_urls = []
@@ -229,7 +230,10 @@ class ChatHandler:
         if not has_media:
             return None, []
         if not image_urls and not video_urls:
+            logger.debug(f"[Volitional] _describe_media: 检测到 Face/Poke 但无 URL，跳过识别")
             return None, all_urls
+
+        logger.info(f"[Volitional] _describe_media: 检测到 {len(image_urls)} 张图片, {len(video_urls)} 个视频")
 
         descriptions = []
         for url in image_urls:
@@ -241,6 +245,7 @@ class ChatHandler:
             if desc:
                 descriptions.append(desc)
 
+        logger.info(f"[Volitional] _describe_media: 获取到 {len(descriptions)} 条描述")
         return "；".join(descriptions) if descriptions else None, all_urls
 
     # ① 记录消息 + 显式发起 LLM 请求
@@ -274,10 +279,13 @@ class ChatHandler:
                 if url_part:
                     labeled = labeled.replace("[图片]", f"[图片]({url_part}){desc_part}")
                     labeled = labeled.replace("[视频]", f"[视频]({url_part}){desc_part}")
+                    logger.debug(f"[Volitional] 媒体已描述并更新buffer: {labeled[:120]}")
                 buffer = self._get_buffer(umo)
                 if buffer:
                     buffer.pop()
                     buffer.append((datetime.now(), labeled))
+
+        event.set_extra("volitional_labeled_message", labeled)
 
         if self._db:
             try:
@@ -360,7 +368,7 @@ class ChatHandler:
                 self._db.log_judgment(
                     umo=umo,
                     sender_name=event.get_sender_name() or "",
-                    message=event.get_message_str(),
+                    message=event.get_extra("volitional_labeled_message") or event.get_message_str(),
                     overall=score.overall,
                     speaker_target_clarity=score.speaker_target_clarity,
                     privacy_safety_risk=score.privacy_safety_risk,

@@ -24,6 +24,10 @@ class MultimodalHelper:
             self.context = context
             self.config = config
             self._initialized = True
+            if self._provider_id:
+                logger.info(f"[Volitional] 多模态辅助模型已配置: {self._provider_id}")
+            else:
+                logger.warning("[Volitional] 未配置 multimodal_provider，多模态功能不可用")
 
     @property
     def _provider_id(self) -> str:
@@ -47,14 +51,17 @@ class MultimodalHelper:
             return None
 
         try:
+            logger.debug(f"[Volitional] 调用多模态模型识别图片: {image_url[:100]}...")
             resp = await self.context.llm_generate(
                 chat_provider_id=self._provider_id,
                 prompt=MultimodalPrompts.IMAGE_PROMPT,
                 image_urls=[image_url],
             )
-            return resp.completion_text.strip()
+            result = resp.completion_text.strip()
+            logger.info(f"[Volitional] 图片识别完成: {result[:80]}...")
+            return result
         except Exception as e:
-            logger.error(f"[Volitional] 多模态图片识别失败: {e}")
+            logger.error(f"[Volitional] 多模态图片识别失败: {e}", exc_info=True)
             return None
 
     async def analyze_video(self, video_url: str) -> Optional[str]:
@@ -71,14 +78,17 @@ class MultimodalHelper:
             return None
 
         try:
+            logger.debug(f"[Volitional] 调用多模态模型识别视频: {video_url[:100]}...")
             resp = await self.context.llm_generate(
                 chat_provider_id=self._provider_id,
                 prompt=MultimodalPrompts.VIDEO_PROMPT,
                 video_urls=[video_url],
             )
-            return resp.completion_text.strip()
+            result = resp.completion_text.strip()
+            logger.info(f"[Volitional] 视频识别完成: {result[:80]}...")
+            return result
         except Exception as e:
-            logger.error(f"[Volitional] 多模态视频识别失败: {e}")
+            logger.error(f"[Volitional] 多模态视频识别失败: {e}", exc_info=True)
             return None
 
     async def terminate(self):
