@@ -44,7 +44,7 @@ class PluginVolitional(Star):
         self._db.init_tables()
 
         self._helper = JudgmentHelper(self.context, self.config)
-        self._multimodal = MultimodalHelper(self.context, self.config)
+        self._multimodal = MultimodalHelper(self.context, self.config, self._db)
         self._chat_handler = ChatHandler(self._helper, self.config, self._db, self._multimodal)
         self._task = asyncio.create_task(self._periodic_loop())
         self._register_web_apis()

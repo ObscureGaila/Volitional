@@ -516,7 +516,29 @@ class VolitionalDB:
 
     # ------ 键值存储 ------ #
 
-    def put(self, key: str, value: Any):
+    # ------ KV 缓存 ------ #
+
+    def cache_get(self, key: str) -> str | None:
+        """简单字符串缓存读取（非 JSON），返回 None 表示不存在。"""
+        c = self._cursor()
+        row = c.execute(
+            "SELECT value FROM kv_store WHERE key = ?", (key,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def cache_set(self, key: str, value: str):
+        """简单字符串缓存写入（非 JSON）。"""
+        c = self._cursor()
+        c.execute(
+            """INSERT INTO kv_store (key, value)
+               VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+               updated_at = datetime('now', 'localtime')""",
+            (key, value),
+        )
+        self._ensure_conn().commit()
+
+    def set(self, key: str, value: Any):
         c = self._cursor()
         c.execute(
             """INSERT INTO kv_store (key, value)
