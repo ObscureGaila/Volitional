@@ -221,16 +221,16 @@ class ChatHandler:
             if comp_type in ("Image", "Video", "Face", "Poke"):
                 has_media = True
 
-            if hasattr(comp, 'convert_to_base64') and comp_type in ("Image", "Video"):
+            if hasattr(comp, 'convert_to_base64') and comp_type in ("Image", "Video", "Face"):
                 try:
                     b64 = await comp.convert_to_base64()
                     if b64:
-                        mime = "image/jpeg" if comp_type == "Image" else "video/mp4"
+                        mime = "image/jpeg"
                         url = f"data:{mime};base64,{b64}"
-                        if comp_type == "Image":
-                            image_urls.append(url)
-                        else:
+                        if comp_type == "Video":
                             video_urls.append(url)
+                        else:
+                            image_urls.append(url)
                 except Exception as e:
                     logger.debug(f"[Volitional] convert_to_base64 失败 ({comp_type}): {e}")
 
@@ -300,7 +300,7 @@ class ChatHandler:
                 vid_idx = 0
                 for comp in event.get_messages():
                     comp_type = type(comp).__name__
-                    if comp_type == "Image" and img_idx < img_count:
+                    if comp_type in ("Image", "Face") and img_idx < img_count:
                         desc = desc_list[img_idx] if img_idx < len(desc_list) else ""
                         db_labeled = db_labeled.replace("[图片]", f"[图片]: {desc}<<IMG>>{media_urls[img_idx]}<<END>>", 1)
                         img_idx += 1
