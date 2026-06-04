@@ -51,7 +51,7 @@ class JudgmentScore:
 class MultimodalPrompts:
     """多模态辅助模型的提示词，区分图片和视频场景。"""
 
-    IMAGE_PROMPT_ADVANCED = (
+    IMAGE_PROMPT = (
         "【群聊图片分析】请提取这张图片的核心信息，按以下要点简洁描述，总字数≤120字：\n"
         "1. 核心主体：主要人物/物体/场景\n"
         "2. 关键文字：所有可见文字内容（完整准确）\n"
@@ -61,7 +61,7 @@ class MultimodalPrompts:
         "输出要求：用陈述句，避免主观推测，只描述客观事实。"
     )
 
-    VIDEO_PROMPT_ADVANCED = (
+    VIDEO_PROMPT = (
         "【群聊视频分析】请提取这段视频的核心信息，按以下要点简洁描述，总字数≤180字：\n"
         "1. 核心内容：主要人物、关键动作、场景变化\n"
         "2. 关键文字：所有字幕/文字内容（完整准确）\n"
