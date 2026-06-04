@@ -237,23 +237,28 @@ class ChatHandler:
         try:
             messages = event.get_messages()
         except Exception:
-            logger.debug("[Volitional] _describe_media: 无法获取消息组件")
+            logger.warning("[Volitional] _describe_media: 无法获取消息组件", exc_info=True)
             return None, []
+
+        logger.debug(f"[Volitional] _describe_media: 消息组件数 {len(messages)}")
 
         image_urls = []
         video_urls = []
         has_media = False
         for comp in messages:
             comp_type = type(comp).__name__
-            if hasattr(comp, 'file') and comp.file:
-                url = str(comp.file)
+            file_attr = getattr(comp, 'file', None)
+            url_attr = getattr(comp, 'url', None)
+            logger.debug(f"[Volitional] _describe_media: 组件类型={comp_type}, file={file_attr}, url={url_attr}")
+            if file_attr:
+                url = str(file_attr)
                 if not url.startswith("http"):
                     # Convert local file to base64 data URL for cloud model access
                     data_url = self._to_data_url(url)
                     if data_url:
                         url = data_url
                     else:
-                        logger.debug(f"[Volitional] _describe_media: 无法读取本地文件: {url[:80]}")
+                        logger.info(f"[Volitional] _describe_media: 无法读取本地文件: {url[:80]}")
                         has_media = True
                         continue
                 if comp_type == "Image" or comp_type == "Face":
@@ -268,9 +273,10 @@ class ChatHandler:
         all_urls = image_urls + video_urls
 
         if not has_media:
+            logger.debug("[Volitional] _describe_media: 未检测到媒体组件")
             return None, []
         if not image_urls and not video_urls:
-            logger.debug(f"[Volitional] _describe_media: 检测到 Face/Poke 但无 URL，跳过识别")
+            logger.info("[Volitional] _describe_media: 检测到 Face/Poke 但无 URL，跳过识别")
             return None, all_urls
 
         logger.info(f"[Volitional] _describe_media: 检测到 {len(image_urls)} 张图片, {len(video_urls)} 个视频")
