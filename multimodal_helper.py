@@ -14,6 +14,7 @@ class MultimodalHelper:
 
     单例模式，全局只有一个实例。
     通过 base64 哈希缓存识别结果，相同图片/视频不重复调用 API。
+    使用内存级 in-flight 去重，避免并发请求同一图片时的竞态条件。
     """
 
     _instance = None
@@ -31,6 +32,7 @@ class MultimodalHelper:
             self.config = config
             self._db = db
             self._last_call_time: float = 0
+            self._in_flight: dict[str, asyncio.Task] = {}  # 并发去重
             self._initialized = True
             if self._provider_id:
                 logger.info(f"[Volitional] 多模态辅助模型已配置: {self._provider_id}")
@@ -49,24 +51,26 @@ class MultimodalHelper:
 
     @staticmethod
     def _compute_hash(url: str) -> str:
-        """计算 base64 URL 的 MD5 哈希，用于缓存去重。"""
-        # 取 URL 最后 200 字符作为特征（base64 数据在末尾）
-        tail = url[-200:] if len(url) > 200 else url
-        return hashlib.md5(tail.encode()).hexdigest()[:16]
+        """计算 base64 URL 的 SHA256 哈希（取末尾 500 字符），用于缓存去重。"""
+        idx = url.find(";base64,")
+        data = url[idx + 8:] if idx >= 0 else url
+        tail = data[-500:] if len(data) > 500 else data
+        return hashlib.sha256(tail.encode()).hexdigest()[:16]
+
+    def _cache_key(self, prefix: str, url: str) -> str:
+        return f"{prefix}:{self._compute_hash(url)}"
 
     def _check_cache(self, prefix: str, url: str) -> Optional[str]:
-        """查询缓存，命中返回描述文本，否则返回 None。"""
+        """查询 DB 缓存，命中返回描述文本，否则返回 None。"""
         if not self._db:
             return None
-        key = f"{prefix}:{self._compute_hash(url)}"
-        return self._db.cache_get(key)
+        return self._db.cache_get(self._cache_key(prefix, url))
 
     def _set_cache(self, prefix: str, url: str, description: str):
-        """将描述写入缓存。"""
+        """将描述写入 DB 缓存。"""
         if not self._db:
             return
-        key = f"{prefix}:{self._compute_hash(url)}"
-        self._db.cache_set(key, description)
+        self._db.cache_set(self._cache_key(prefix, url), description)
 
     async def _wait_for_rate_limit(self):
         """等待直到距上次调用超过最小间隔。"""
@@ -77,83 +81,77 @@ class MultimodalHelper:
             await asyncio.sleep(wait)
         self._last_call_time = time.time()
 
-    async def analyze_image(self, image_url: str) -> Optional[str]:
-        """使用多模态模型分析图片内容。
+    async def _call_image_api(self, image_url: str) -> Optional[str]:
+        """实际调用多模态 API 识别图片（含限流等待），成功后写入 DB 缓存。"""
+        await self._wait_for_rate_limit()
+        resp = await self.context.llm_generate(
+            chat_provider_id=self._provider_id,
+            prompt=MultimodalPrompts.IMAGE_PROMPT,
+            image_urls=[image_url],
+        )
+        result = resp.completion_text.strip()
+        logger.info(f"[Volitional] 图片识别完成: {result[:80]}...")
+        self._set_cache("img", image_url, result)
+        return result
 
-        Args:
-            image_url: 图片的 base64 data URL。
+    async def _call_video_api(self, video_url: str) -> Optional[str]:
+        """实际调用多模态 API 识别视频（含限流等待），成功后写入 DB 缓存。"""
+        await self._wait_for_rate_limit()
+        resp = await self.context.llm_generate(
+            chat_provider_id=self._provider_id,
+            prompt=MultimodalPrompts.VIDEO_PROMPT,
+            video_urls=[video_url],
+        )
+        result = resp.completion_text.strip()
+        logger.info(f"[Volitional] 视频识别完成: {result[:80]}...")
+        self._set_cache("vid", video_url, result)
+        return result
 
-        Returns:
-            Optional[str]: 图片的文字描述，失败返回 None。
+    async def _dedup_or_call(self, prefix: str, media_url: str,
+                             call_fn) -> Optional[str]:
+        """去重调度：DB 缓存 → 内存 in-flight → 实际调用。
+        
+        同一 base64 哈希的并发请求会共享同一个 Task，避免重复调用 API。
         """
-        if not self._provider_id:
-            return None
+        key = self._cache_key(prefix, media_url)
 
-        # 1. 检查缓存
-        cached = self._check_cache("img", image_url)
+        # 1. DB 缓存
+        cached = self._check_cache(prefix, media_url)
         if cached:
-            logger.debug(f"[Volitional] 图片缓存命中，复用已有描述")
+            logger.debug(f"[Volitional] {prefix} 缓存命中，复用已有描述")
             return cached
 
-        # 2. 等待限流窗口
-        await self._wait_for_rate_limit()
+        # 2. 内存级 in-flight 去重
+        if key in self._in_flight:
+            logger.debug(f"[Volitional] {prefix} 相同图片正在识别中，等待结果...")
+            try:
+                return await self._in_flight[key]
+            except Exception:
+                return None
 
-        # 3. 调用 API
+        # 3. 启动新任务
+        task = asyncio.create_task(call_fn(media_url))
+        self._in_flight[key] = task
         try:
-            logger.debug(f"[Volitional] 调用多模态模型识别图片: {image_url[:100]}...")
-            resp = await self.context.llm_generate(
-                chat_provider_id=self._provider_id,
-                prompt=MultimodalPrompts.IMAGE_PROMPT,
-                image_urls=[image_url],
-            )
-            result = resp.completion_text.strip()
-            logger.info(f"[Volitional] 图片识别完成: {result[:80]}...")
-
-            # 4. 写入缓存
-            self._set_cache("img", image_url, result)
+            result = await task
             return result
         except Exception as e:
-            logger.error(f"[Volitional] 多模态图片识别失败: {e}", exc_info=True)
+            logger.error(f"[Volitional] 多模态{prefix}识别失败: {e}", exc_info=True)
             return None
+        finally:
+            self._in_flight.pop(key, None)
+
+    async def analyze_image(self, image_url: str) -> Optional[str]:
+        """使用多模态模型分析图片内容（含去重和缓存）。"""
+        if not self._provider_id:
+            return None
+        return await self._dedup_or_call("img", image_url, self._call_image_api)
 
     async def analyze_video(self, video_url: str) -> Optional[str]:
-        """使用多模态模型分析视频内容。
-
-        Args:
-            video_url: 视频的 base64 data URL。
-
-        Returns:
-            Optional[str]: 视频的文字描述，失败返回 None。
-        """
+        """使用多模态模型分析视频内容（含去重和缓存）。"""
         if not self._provider_id:
             return None
-
-        # 1. 检查缓存
-        cached = self._check_cache("vid", video_url)
-        if cached:
-            logger.debug(f"[Volitional] 视频缓存命中，复用已有描述")
-            return cached
-
-        # 2. 等待限流窗口
-        await self._wait_for_rate_limit()
-
-        # 3. 调用 API
-        try:
-            logger.debug(f"[Volitional] 调用多模态模型识别视频: {video_url[:100]}...")
-            resp = await self.context.llm_generate(
-                chat_provider_id=self._provider_id,
-                prompt=MultimodalPrompts.VIDEO_PROMPT,
-                video_urls=[video_url],
-            )
-            result = resp.completion_text.strip()
-            logger.info(f"[Volitional] 视频识别完成: {result[:80]}...")
-
-            # 4. 写入缓存
-            self._set_cache("vid", video_url, result)
-            return result
-        except Exception as e:
-            logger.error(f"[Volitional] 多模态视频识别失败: {e}", exc_info=True)
-            return None
+        return await self._dedup_or_call("vid", video_url, self._call_video_api)
 
     async def terminate(self):
         """销毁方法，重置单例状态"""
