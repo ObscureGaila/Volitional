@@ -236,7 +236,6 @@
                     link.textContent = p.type === 'image' ? '[点击查看图片]' : '[点击查看视频]';
 
                     var mediaNode = document.createElement(p.type === 'image' ? 'img' : 'video');
-                    mediaNode.src = p.src;
                     mediaNode.style.cssText = 'max-width:100%;max-height:300px;border-radius:6px;margin-top:4px;display:none;';
                     if (p.type === 'video') {
                         mediaNode.controls = true;
@@ -244,6 +243,8 @@
 
                     link.addEventListener('click', function() {
                         if (mediaNode.style.display === 'none') {
+                            // 点击时才加载 src，避免初始加载时批量下载 base64 拖慢速度
+                            if (!mediaNode.src) mediaNode.src = p.src;
                             mediaNode.style.display = 'block';
                             link.textContent = p.type === 'image' ? '[收起图片]' : '[收起视频]';
                         } else {
