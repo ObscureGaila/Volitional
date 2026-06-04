@@ -257,12 +257,15 @@ class VolitionalDB:
             """SELECT c.conv_id, c.umo, c.created_at, c.updated_at,
                       COALESCE(m.chat_type, '') as chat_type,
                       COALESCE(m.chat_id, '') as chat_id,
-                      (SELECT COUNT(*) FROM messages WHERE conv_id = c.conv_id) as msg_count
+                      COALESCE(cnt.cnt, 0) as msg_count
                FROM conversations c
                LEFT JOIN (
                    SELECT DISTINCT conv_id, chat_type, chat_id FROM messages
                    WHERE chat_type != ''
                ) m ON m.conv_id = c.conv_id
+               LEFT JOIN (
+                   SELECT conv_id, COUNT(*) as cnt FROM messages GROUP BY conv_id
+               ) cnt ON cnt.conv_id = c.conv_id
                ORDER BY c.updated_at DESC"""
         ).fetchall()
         return [
@@ -275,7 +278,7 @@ class VolitionalDB:
             for r in rows
         ]
 
-    def get_messages_detail(self, conv_id: str) -> dict:
+    def get_messages_detail(self, conv_id: str, limit: int = 500) -> dict:
         c = self._cursor()
         conv = c.execute(
             "SELECT conv_id, umo, created_at FROM conversations WHERE conv_id = ?",
@@ -293,13 +296,15 @@ class VolitionalDB:
             meta["chat_type"] = meta_row[0]
             meta["chat_id"] = meta_row[1]
 
-        msgs = self.get_messages(conv_id)
+        total = self.count_messages(conv_id)
+        msgs = self.get_messages(conv_id, limit=limit)
         return {
             "conv_id": conv[0],
             "umo": conv[1],
             "created_at": conv[2],
             "chat_type": meta["chat_type"],
             "chat_id": meta["chat_id"],
+            "total": total,
             "messages": msgs,
         }
 

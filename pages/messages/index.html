@@ -204,7 +204,8 @@
         detailTitle.appendChild(chatTypeBadge);
         detailTitle.appendChild(document.createTextNode(data.chat_id || ''));
 
-        document.getElementById('detailMeta').textContent = '共 ' + data.messages.length + ' 条消息';
+        var total = data.total || data.messages.length;
+        document.getElementById('detailMeta').textContent = '共 ' + total + ' 条消息' + (total > data.messages.length ? '（已加载最近 ' + data.messages.length + ' 条）' : '');
 
         var container = document.getElementById('contentView');
         while (container.firstChild) container.removeChild(container.firstChild);
