@@ -27,18 +27,21 @@ class ChatHandler:
     - on_decorating_result: 发送前的最终修饰（预留扩展）
     """
 
-    def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig, db: VolitionalDB | None = None, multimodal_helper: MultimodalHelper | None = None):
+    def __init__(self, judgment_helper: JudgmentHelper, config: AstrBotConfig, db: VolitionalDB | None = None, multimodal_helper: MultimodalHelper | None = None, data_dir: Path | None = None):
         """初始化聊天处理器。
 
         Args:
             judgment_helper: JudgmentHelper 单例，用于调用辅助模型进行回复判断。
             config: 插件配置对象。
             db: VolitionalDB 实例，用于持久化消息和判断日志。
+            multimodal_helper: 多模态辅助模型实例。
+            data_dir: AstrBot 数据根目录，用于解析图片本地路径。
         """
         self.judgment_helper = judgment_helper
         self._config = config
         self._db = db
         self._multimodal = multimodal_helper
+        self._data_dir = data_dir
         self._conversation_buffers: dict[str, deque[tuple[datetime, str]]] = {}
         self._max_buffer_size = 50
         self._umo_meta: dict[str, dict[str, str]] = {}
@@ -197,12 +200,12 @@ class ChatHandler:
             return True
         return False
 
-    @staticmethod
-    def _to_data_url(file_path: str) -> str | None:
+    def _to_data_url(self, file_path: str) -> str | None:
         """将本地文件路径转为 base64 Data URL，供云模型访问。
+        对于纯文件名，尝试从 AstrBot data 目录下查找。
 
         Args:
-            file_path: 本地文件路径或 file:// URI。
+            file_path: 本地文件路径、file:// URI 或纯文件名。
 
         Returns:
             str | None: data:image/xxx;base64,... 格式的 URL，失败返回 None。
@@ -212,6 +215,15 @@ class ChatHandler:
             if file_path.startswith("file://"):
                 file_path = file_path[7:]
             path = Path(file_path)
+            # If it's a bare filename, try to resolve under data dir
+            if not path.is_absolute() and not path.is_file():
+                if self._data_dir:
+                    # Try common subdirectories
+                    for sub in ["cache", "images", "temp", ""]:
+                        candidate = self._data_dir / sub / path.name
+                        if candidate.is_file():
+                            path = candidate
+                            break
             if not path.is_file():
                 return None
             data = path.read_bytes()
@@ -252,21 +264,34 @@ class ChatHandler:
             logger.debug(f"[Volitional] _describe_media: 组件类型={comp_type}, file={file_attr}, url={url_attr}")
             if file_attr:
                 url = str(file_attr)
-                if not url.startswith("http"):
-                    # Convert local file to base64 data URL for cloud model access
+                if url.startswith("base64://"):
+                    # aiocqhttp passes Image as base64://, convert to data: URL
+                    b64_data = url[9:]
+                    url = f"data:image/jpeg;base64,{b64_data}"
+                    has_media = True
+                    if comp_type == "Image":
+                        image_urls.append(url)
+                    elif comp_type == "Video":
+                        video_urls.append(url)
+                elif url.startswith("http"):
+                    has_media = True
+                    if comp_type == "Image" or comp_type == "Face":
+                        image_urls.append(url)
+                    elif comp_type == "Video":
+                        video_urls.append(url)
+                else:
+                    # Local file path — convert to data URL
                     data_url = self._to_data_url(url)
                     if data_url:
                         url = data_url
+                        has_media = True
+                        if comp_type == "Image" or comp_type == "Face":
+                            image_urls.append(url)
+                        elif comp_type == "Video":
+                            video_urls.append(url)
                     else:
                         logger.info(f"[Volitional] _describe_media: 无法读取本地文件: {url[:80]}")
                         has_media = True
-                        continue
-                if comp_type == "Image" or comp_type == "Face":
-                    image_urls.append(url)
-                    has_media = True
-                elif comp_type == "Video":
-                    video_urls.append(url)
-                    has_media = True
             elif comp_type == "Face" or comp_type == "Poke":
                 has_media = True
 

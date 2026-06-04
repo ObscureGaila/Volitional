@@ -45,7 +45,8 @@ class PluginVolitional(Star):
 
         self._helper = JudgmentHelper(self.context, self.config)
         self._multimodal = MultimodalHelper(self.context, self.config)
-        self._chat_handler = ChatHandler(self._helper, self.config, self._db, self._multimodal)
+        astrbot_data_dir = data_dir.parent.parent  # data/plugin_data/xxx -> data/
+        self._chat_handler = ChatHandler(self._helper, self.config, self._db, self._multimodal, astrbot_data_dir)
         self._task = asyncio.create_task(self._periodic_loop())
         self._register_web_apis()
 
