@@ -166,28 +166,51 @@ class VolitionalDB:
 
     @classmethod
     def _extract_media_from_content(cls, content: str) -> tuple[str, str]:
-        """从 content 中提取 base64 媒体数据，返回 (清理后content, media_base64)"""
-        m = cls._MEDIA_TAG_RE.search(content)
-        if m:
-            media_base64 = m.group(2)
-            cleaned = content[:m.start()] + f'<<{m.group(1)}>>' + content[m.end():]
-            return cleaned, media_base64
-        return content, ""
+        """从 content 中提取所有 base64 媒体数据，返回 (清理后content, JSON数组或空字符串)"""
+        matches = list(cls._MEDIA_TAG_RE.finditer(content))
+        if not matches:
+            return content, ""
+        media_list = [m.group(2) for m in matches]
+        cleaned = cls._MEDIA_TAG_RE.sub(lambda m: f'<<{m.group(1)}>>', content)
+        return cleaned, json.dumps(media_list, ensure_ascii=False)
 
     def _migrate_extract_media(self, c):
-        """迁移已有数据：将 content 中的 base64 拆分到 media_base64 列"""
-        rows = c.execute("SELECT id, content FROM messages WHERE content LIKE '%<<IMG>>%' OR content LIKE '%<<VID>>%'").fetchall()
+        """迁移已有数据：将 content 中的 base64 拆分到 media_base64 列。
+        
+        查询 content 含 <<IMG>> 或 <<VID>> 的行（这些是尚未提取干净或仅含标记的）。
+        只处理 content 中仍嵌有 base64 数据的行（匹配 <<IMG>>b64<<END>> 完整标签）。
+        """
+        rows = c.execute(
+            "SELECT id, content, media_base64 FROM messages "
+            "WHERE (content LIKE '%<<IMG>>%' OR content LIKE '%<<VID>>%')"
+        ).fetchall()
         if not rows:
             return
+        full_tag_re = re.compile(r'<<(IMG|VID)>>[^<]+<<END>>')
         for row in rows:
             mid = row[0]
             content = row[1]
-            cleaned, media_base64 = self._extract_media_from_content(content)
-            if media_base64:
-                c.execute(
-                    "UPDATE messages SET content = ?, media_base64 = ? WHERE id = ?",
-                    (cleaned, media_base64, mid),
-                )
+            existing_media = row[2] or ""
+            # 仅处理 content 中仍嵌入完整 base64 标签的行
+            if not full_tag_re.search(content):
+                continue
+            cleaned, new_media = self._extract_media_from_content(content)
+            if not new_media:
+                continue
+            # 与已有的 media_base64 合并（多轮迁移场景）
+            if existing_media:
+                try:
+                    existing_list = json.loads(existing_media)
+                except (json.JSONDecodeError, TypeError):
+                    existing_list = [existing_media]
+                new_list = json.loads(new_media)
+                merged = json.dumps(existing_list + new_list, ensure_ascii=False)
+            else:
+                merged = new_media
+            c.execute(
+                "UPDATE messages SET content = ?, media_base64 = ? WHERE id = ?",
+                (cleaned, merged, mid),
+            )
         self._ensure_conn().commit()
 
     @staticmethod

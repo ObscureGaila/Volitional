@@ -178,11 +178,13 @@
         var re = /<<(IMG|VID)>>/g;
         var lastIdx = 0;
         var match;
+        var mediaIdx = 0;
         while ((match = re.exec(content)) !== null) {
             if (match.index > lastIdx) {
                 parts.push({type: 'text', text: content.substring(lastIdx, match.index)});
             }
-            parts.push({type: match[1] === 'IMG' ? 'image' : 'video'});
+            parts.push({type: match[1] === 'IMG' ? 'image' : 'video', index: mediaIdx});
+            mediaIdx++;
             lastIdx = match.index + match[0].length;
         }
         if (lastIdx < content.length) {
@@ -243,22 +245,32 @@
                         mediaNode.controls = true;
                     }
 
-                    (function(msgId, mediaType, node, lnk) {
+                    (function(msgId, mediaType, mediaIdx, node, lnk) {
                         lnk.addEventListener('click', function() {
                             if (node.style.display === 'none') {
-                                // 点击时从 API 按需加载 base64，不在列表查询中传输
                                 if (!node.src) {
-                                    lnk.textContent = '加载中...';
-                                    AstrBotPluginPage.apiGet('/message_media', { id: msgId }).then(function(resp) {
-                                        if (resp && resp.media) {
-                                            node.src = resp.media;
-                                        }
+                                    // 加载 media 数据（JSON 数组），取出对应索引的 URL
+                                    var loadUrl = function(mediaResp) {
+                                        var urls = [];
+                                        try { urls = JSON.parse(mediaResp.media); } catch(e) { urls = [mediaResp.media]; }
+                                        node.src = urls[mediaIdx] || urls[0] || '';
+                                    };
+                                    if (m._mediaResp) {
+                                        loadUrl(m._mediaResp);
                                         node.style.display = 'block';
                                         lnk.textContent = mediaType === 'image' ? '[收起图片]' : '[收起视频]';
-                                    }).catch(function() {
-                                        node.style.display = 'block';
-                                        lnk.textContent = mediaType === 'image' ? '[收起图片]' : '[收起视频]';
-                                    });
+                                    } else {
+                                        lnk.textContent = '加载中...';
+                                        AstrBotPluginPage.apiGet('/message_media', { id: msgId }).then(function(resp) {
+                                            m._mediaResp = resp;
+                                            loadUrl(resp);
+                                            node.style.display = 'block';
+                                            lnk.textContent = mediaType === 'image' ? '[收起图片]' : '[收起视频]';
+                                        }).catch(function() {
+                                            node.style.display = 'block';
+                                            lnk.textContent = mediaType === 'image' ? '[收起图片]' : '[收起视频]';
+                                        });
+                                    }
                                 } else {
                                     node.style.display = 'block';
                                     lnk.textContent = mediaType === 'image' ? '[收起图片]' : '[收起视频]';
@@ -268,7 +280,7 @@
                                 lnk.textContent = mediaType === 'image' ? '[点击查看图片]' : '[点击查看视频]';
                             }
                         });
-                    })(m.id, p.type, mediaNode, link);
+                    })(m.id, p.type, p.index, mediaNode, link);
 
                     bubble.appendChild(link);
                     bubble.appendChild(mediaNode);
