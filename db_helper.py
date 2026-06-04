@@ -162,7 +162,7 @@ class VolitionalDB:
             pass
         self._ensure_conn().commit()
 
-    _MEDIA_TAG_RE = re.compile(r'<<(IMG|VID)>>(.+?)<<END>>')
+    _MEDIA_TAG_RE = re.compile(r'<<(IMG|VID)>>([^<]+)<<END>>')
 
     @classmethod
     def _extract_media_from_content(cls, content: str) -> tuple[str, str]:
