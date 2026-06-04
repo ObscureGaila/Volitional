@@ -1,7 +1,10 @@
 import asyncio
+import base64
+import mimetypes
 import random
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 
 from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Plain
@@ -194,6 +197,33 @@ class ChatHandler:
             return True
         return False
 
+    @staticmethod
+    def _to_data_url(file_path: str) -> str | None:
+        """将本地文件路径转为 base64 Data URL，供云模型访问。
+
+        Args:
+            file_path: 本地文件路径或 file:// URI。
+
+        Returns:
+            str | None: data:image/xxx;base64,... 格式的 URL，失败返回 None。
+        """
+        try:
+            # Strip file:// prefix if present
+            if file_path.startswith("file://"):
+                file_path = file_path[7:]
+            path = Path(file_path)
+            if not path.is_file():
+                return None
+            data = path.read_bytes()
+            mime, _ = mimetypes.guess_type(path.name)
+            if not mime:
+                mime = "image/jpeg"
+            b64 = base64.b64encode(data).decode("ascii")
+            return f"data:{mime};base64,{b64}"
+        except Exception as e:
+            logger.debug(f"[Volitional] _to_data_url 失败: {e}")
+            return None
+
     async def _describe_media(self, event: AstrMessageEvent, umo: str) -> tuple[str | None, list[str]]:
         """检测消息中的图片/视频，调用多模态模型生成描述。
 
@@ -216,11 +246,21 @@ class ChatHandler:
         for comp in messages:
             comp_type = type(comp).__name__
             if hasattr(comp, 'file') and comp.file:
+                url = str(comp.file)
+                if not url.startswith("http"):
+                    # Convert local file to base64 data URL for cloud model access
+                    data_url = self._to_data_url(url)
+                    if data_url:
+                        url = data_url
+                    else:
+                        logger.debug(f"[Volitional] _describe_media: 无法读取本地文件: {url[:80]}")
+                        has_media = True
+                        continue
                 if comp_type == "Image" or comp_type == "Face":
-                    image_urls.append(comp.file)
+                    image_urls.append(url)
                     has_media = True
                 elif comp_type == "Video":
-                    video_urls.append(comp.file)
+                    video_urls.append(url)
                     has_media = True
             elif comp_type == "Face" or comp_type == "Poke":
                 has_media = True
