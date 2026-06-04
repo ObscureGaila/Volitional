@@ -333,6 +333,9 @@ class ChatHandler:
             f"可回={score.replyability:.2f}"
         )
 
+        # Record decision time for delay compensation
+        event.set_extra("volitional_decision_time", datetime.now())
+
         # Build recent conversation context for the main LLM
         max_msgs = int(self._config.get("max_context_messages", 5))
         buffer = self._get_buffer(umo)
@@ -441,7 +444,7 @@ class ChatHandler:
         return [text]
 
     async def final_decorate(self, event: AstrMessageEvent):
-        """发送消息前进行最终修饰。统一按 JSON 数组解析并逐条发送，间隔 1~2 秒。
+        """发送消息前进行最终修饰。统一按 JSON 数组解析并逐条发送，延迟已扣除 LLM 生成耗时（保底 0.3s）。
 
         Args:
             event: 消息事件。
@@ -450,12 +453,20 @@ class ChatHandler:
         if not messages:
             return
 
+        # Calculate generation elapsed time for delay compensation
+        gen_elapsed = 0.0
+        decision_time = event.get_extra("volitional_decision_time")
+        if decision_time:
+            gen_elapsed = (datetime.now() - decision_time).total_seconds()
+
         result = event.get_result()
         result.chain = []
         event.stop_event()
 
         for msg in messages:
-            delay = len(msg) * random.uniform(0.2, 0.3)
+            raw_delay = len(msg) * random.uniform(0.2, 0.3)
+            delay = max(0.3, raw_delay - gen_elapsed)
+            gen_elapsed = 0.0  # Only subtract once for the first message
             await asyncio.sleep(delay)
             await event.send(MessageChain([Plain(msg)]))
 
