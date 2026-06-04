@@ -203,7 +203,7 @@ class ChatHandler:
             umo: 统一会话标识。
 
         Returns:
-            tuple[str | None, list[str]]: (文字描述, 所有媒体URL列表)，无媒体或失败返回 (None, [])。
+            tuple[list[str] | None, list[str]]: (描述列表, 所有媒体URL列表)，无媒体或失败返回 (None, [])。
         """
         try:
             messages = event.get_messages()
@@ -256,7 +256,7 @@ class ChatHandler:
                 descriptions.append(desc)
 
         logger.info(f"[Volitional] _describe_media: 获取到 {len(descriptions)} 条描述")
-        return "；".join(descriptions) if descriptions else None, all_urls
+        return descriptions if descriptions else None, all_urls
 
     # ① 记录消息 + 显式发起 LLM 请求
     async def on_all_message(self, event: AstrMessageEvent):
@@ -283,22 +283,33 @@ class ChatHandler:
         # Detect images/videos and describe via multimodal model
         db_labeled = labeled
         if self._multimodal and self._multimodal.is_configured():
-            media_result, media_urls = await self._describe_media(event, umo)
-            if media_result:
+            desc_list, media_urls = await self._describe_media(event, umo)
+            if desc_list and media_urls:
                 # Buffer: text-only description (for LLM context, no base64)
-                labeled = labeled.replace("[图片]", f"[图片]: {media_result}")
-                labeled = labeled.replace("[视频]", f"[视频]: {media_result}")
+                joined_desc = "；".join(desc_list)
+                labeled = labeled.replace("[图片]", f"[图片]: {joined_desc}")
+                labeled = labeled.replace("[视频]", f"[视频]: {joined_desc}")
                 buffer = self._get_buffer(umo)
                 if buffer:
                     buffer.pop()
                     buffer.append((datetime.now(), labeled))
-                # DB: include hidden base64 tag (for human viewing via messages page)
-                b64_tag = media_urls[0] if media_urls else ""
-                if b64_tag:
-                    db_labeled = db_labeled.replace("[图片]", f"[图片]: {media_result}<<IMG>>{b64_tag}<<END>>")
-                    db_labeled = db_labeled.replace("[视频]", f"[视频]: {media_result}<<VID>>{b64_tag}<<END>>")
-                else:
-                    db_labeled = labeled
+                # DB: 逐个替换 [图片]/[视频]，每张图独立 base64（从原始字符串构建）
+                db_labeled = f"[{sender_name}]{extra_marker}: {outline}"
+                img_count = sum(1 for u in media_urls if "image" in u)
+                img_idx = 0
+                vid_idx = 0
+                for comp in event.get_messages():
+                    comp_type = type(comp).__name__
+                    if comp_type == "Image" and img_idx < img_count:
+                        desc = desc_list[img_idx] if img_idx < len(desc_list) else ""
+                        db_labeled = db_labeled.replace("[图片]", f"[图片]: {desc}<<IMG>>{media_urls[img_idx]}<<END>>", 1)
+                        img_idx += 1
+                    elif comp_type == "Video" and vid_idx < len(media_urls) - img_count:
+                        desc_idx = img_count + vid_idx
+                        desc = desc_list[desc_idx] if desc_idx < len(desc_list) else ""
+                        url_idx = img_count + vid_idx
+                        db_labeled = db_labeled.replace("[视频]", f"[视频]: {desc}<<VID>>{media_urls[url_idx]}<<END>>", 1)
+                        vid_idx += 1
                 logger.debug(f"[Volitional] 媒体已描述: {labeled[:100]}")
 
         event.set_extra("volitional_labeled_message", labeled)
