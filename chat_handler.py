@@ -214,15 +214,15 @@ class ChatHandler:
         video_urls = []
         has_media = False
         for comp in messages:
-            comp_str = str(comp)
+            comp_type = type(comp).__name__
             if hasattr(comp, 'file') and comp.file:
-                if comp_str.startswith("Image") or comp_str.startswith("Face"):
+                if comp_type == "Image" or comp_type == "Face":
                     image_urls.append(comp.file)
                     has_media = True
-                elif comp_str.startswith("Video"):
+                elif comp_type == "Video":
                     video_urls.append(comp.file)
                     has_media = True
-            elif comp_str.startswith("Face") or comp_str.startswith("Poke"):
+            elif comp_type == "Face" or comp_type == "Poke":
                 has_media = True
 
         all_urls = image_urls + video_urls
