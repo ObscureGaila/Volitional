@@ -172,6 +172,24 @@
         });
     }
 
+    function parseMediaTags(content) {
+        var parts = [];
+        var re = /<<(IMG|VID)>>(.+?)<<END>>/g;
+        var lastIdx = 0;
+        var match;
+        while ((match = re.exec(content)) !== null) {
+            if (match.index > lastIdx) {
+                parts.push({type: 'text', text: content.substring(lastIdx, match.index)});
+            }
+            parts.push({type: match[1] === 'IMG' ? 'image' : 'video', src: match[2]});
+            lastIdx = match.index + match[0].length;
+        }
+        if (lastIdx < content.length) {
+            parts.push({type: 'text', text: content.substring(lastIdx)});
+        }
+        return parts.length > 0 ? parts : [{type: 'text', text: content}];
+    }
+
     function renderDetail(data) {
         var chatTypeBadge = document.createElement('span');
         if (data.chat_type === '群聊') {
@@ -188,19 +206,67 @@
 
         document.getElementById('detailMeta').textContent = '共 ' + data.messages.length + ' 条消息';
 
-        var html = '<div class="msg-list">';
+        var container = document.getElementById('contentView');
+        while (container.firstChild) container.removeChild(container.firstChild);
+        var msgList = document.createElement('div');
+        msgList.className = 'msg-list';
+
         data.messages.forEach(function(m) {
             var roleCls = m.role === 'assistant' ? 'assistant' : 'user';
             var displayName = m.sender_name || (m.role === 'assistant' ? '机器人' : '用户');
-            html += '<div class="msg-item ' + roleCls + '">' +
-                '<span class="msg-sender">' + esc(displayName) + '</span>' +
-                '<div class="msg-bubble">' + esc(m.content) + '</div>' +
-                '<span class="msg-time">' + esc(formatTime(m.time)) + '</span>' +
-            '</div>';
-        });
-        html += '</div>';
-        document.getElementById('contentView').innerHTML = html;
 
+            var item = document.createElement('div');
+            item.className = 'msg-item ' + roleCls;
+
+            var sender = document.createElement('span');
+            sender.className = 'msg-sender';
+            sender.textContent = displayName;
+            item.appendChild(sender);
+
+            var bubble = document.createElement('div');
+            bubble.className = 'msg-bubble';
+
+            var parts = parseMediaTags(m.content || '');
+            parts.forEach(function(p) {
+                if (p.type === 'text') {
+                    bubble.appendChild(document.createTextNode(p.text));
+                } else {
+                    var link = document.createElement('span');
+                    link.style.cssText = 'color:#74b9ff;cursor:pointer;text-decoration:underline;';
+                    link.textContent = p.type === 'image' ? '[点击查看图片]' : '[点击查看视频]';
+
+                    var mediaNode = document.createElement(p.type === 'image' ? 'img' : 'video');
+                    mediaNode.src = p.src;
+                    mediaNode.style.cssText = 'max-width:100%;max-height:300px;border-radius:6px;margin-top:4px;display:none;';
+                    if (p.type === 'video') {
+                        mediaNode.controls = true;
+                    }
+
+                    link.addEventListener('click', function() {
+                        if (mediaNode.style.display === 'none') {
+                            mediaNode.style.display = 'block';
+                            link.textContent = p.type === 'image' ? '[收起图片]' : '[收起视频]';
+                        } else {
+                            mediaNode.style.display = 'none';
+                            link.textContent = p.type === 'image' ? '[点击查看图片]' : '[点击查看视频]';
+                        }
+                    });
+
+                    bubble.appendChild(link);
+                    bubble.appendChild(mediaNode);
+                }
+            });
+            item.appendChild(bubble);
+
+            var timeSpan = document.createElement('span');
+            timeSpan.className = 'msg-time';
+            timeSpan.textContent = formatTime(m.time) || '';
+            item.appendChild(timeSpan);
+
+            msgList.appendChild(item);
+        });
+
+        container.appendChild(msgList);
         scrollToBottom();
     }
 

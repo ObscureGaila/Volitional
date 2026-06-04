@@ -281,26 +281,32 @@ class ChatHandler:
         self._get_buffer(umo).append((datetime.now(), labeled))
 
         # Detect images/videos and describe via multimodal model
+        db_labeled = labeled
         if self._multimodal and self._multimodal.is_configured():
             media_result, media_urls = await self._describe_media(event, umo)
-            if media_result or media_urls:
-                url_part = " | ".join(media_urls) if media_urls else ""
-                desc_part = f": {media_result}" if media_result else ""
-                if url_part:
-                    labeled = labeled.replace("[图片]", f"[图片]({url_part}){desc_part}")
-                    labeled = labeled.replace("[视频]", f"[视频]({url_part}){desc_part}")
-                    logger.debug(f"[Volitional] 媒体已描述并更新buffer: {labeled[:120]}")
+            if media_result:
+                # Buffer: text-only description (for LLM context, no base64)
+                labeled = labeled.replace("[图片]", f"[图片]: {media_result}")
+                labeled = labeled.replace("[视频]", f"[视频]: {media_result}")
                 buffer = self._get_buffer(umo)
                 if buffer:
                     buffer.pop()
                     buffer.append((datetime.now(), labeled))
+                # DB: include hidden base64 tag (for human viewing via messages page)
+                b64_tag = media_urls[0] if media_urls else ""
+                if b64_tag:
+                    db_labeled = db_labeled.replace("[图片]", f"[图片]: {media_result}<<IMG>>{b64_tag}<<END>>")
+                    db_labeled = db_labeled.replace("[视频]", f"[视频]: {media_result}<<VID>>{b64_tag}<<END>>")
+                else:
+                    db_labeled = labeled
+                logger.debug(f"[Volitional] 媒体已描述: {labeled[:100]}")
 
         event.set_extra("volitional_labeled_message", labeled)
 
         if self._db:
             try:
                 chat_type, chat_id = self._get_chat_info(event)
-                self._db.add_message(umo, "user", labeled,
+                self._db.add_message(umo, "user", db_labeled,
                                      chat_type=chat_type, chat_id=chat_id,
                                      sender_name=sender_name)
             except Exception as e:
@@ -413,6 +419,11 @@ class ChatHandler:
             f"指向={score.speaker_target_clarity:.2f} 关联={score.relevance:.2f} "
             f"可回={score.replyability:.2f}"
         )
+
+        # Clear raw image/video URLs to avoid context overflow; main LLM uses text descriptions
+        if req.image_urls:
+            logger.debug(f"[Volitional] 清除 {len(req.image_urls)} 个原始媒体URL，主LLM使用文字描述")
+            req.image_urls.clear()
 
         # Record decision time for delay compensation
         event.set_extra("volitional_decision_time", datetime.now())
